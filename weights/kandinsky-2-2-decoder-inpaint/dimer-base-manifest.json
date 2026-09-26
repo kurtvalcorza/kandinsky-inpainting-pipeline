@@ -1,0 +1,46 @@
+{
+  "format": "dimer_hf_snapshot",
+  "formatVersion": 1,
+  "modelKey": "kandinsky-2-2-decoder-inpaint",
+  "modelId": "kandinsky-community/kandinsky-2-2-decoder-inpaint",
+  "revision": "db790ad5cbcabed886f069ef2710774657621702",
+  "license": "apache-2.0",
+  "totalBytes": 5283767688,
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 5720,
+      "sha256": "2d4ec36bbaf91ab7d1d1d2ee3a921d5c16f39e8d1ce6d3f9045a8d82cb0ef186"
+    },
+    {
+      "path": "model_index.json",
+      "bytes": 257,
+      "sha256": "6dfda60c9ec616ddd4f38cdf01a2adf3e1c6cf074e925f7bb77980d543aee8b1"
+    },
+    {
+      "path": "movq/config.json",
+      "bytes": 660,
+      "sha256": "b7448f3ea8aecf233629b20c1f606887e22244656edcee1be6a419079717a23e"
+    },
+    {
+      "path": "movq/diffusion_pytorch_model.safetensors",
+      "bytes": 271380364,
+      "sha256": "43a5860fea195a7116f2471396c5cc9535fade9b63c4857d8a192ffd924b7002"
+    },
+    {
+      "path": "scheduler/scheduler_config.json",
+      "bytes": 318,
+      "sha256": "801b60ec20835a36bf8c0cd2dab9f2c72d0b938ec87202a6b5b3eeb2714e1b97"
+    },
+    {
+      "path": "unet/config.json",
+      "bytes": 1665,
+      "sha256": "35e05e11683958668f34f2d99fb63524c26863f5d21257fda3c4a684e9f3131d"
+    },
+    {
+      "path": "unet/diffusion_pytorch_model.safetensors",
+      "bytes": 5012378704,
+      "sha256": "098b846d2378b4b44a33e0bd47f89f2886b72a10200cbf9e96d5fae3c471543f"
+    }
+  ]
+}
