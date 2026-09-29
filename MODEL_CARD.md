@@ -269,7 +269,16 @@ The following uses are unacceptable even where the pipeline would work:
 - **Runtime:** Kaggle batch kernel on a Tesla T4 (15,360 MiB), Python 3.12.13, `torch 2.14.0+cu130`, `diffusers 0.40.0`, `transformers 5.17.0`, `peft 0.21.0`
 - **Procedure:** the notebook was fetched at that commit and run with `Run all` in a fresh interpreter, with an empty Hugging Face cache and no repository checkout. Form fields were at their defaults (`USE_BYOD = False`). The install cell's restart guard fired once because the kernel had preloaded older `numpy` and `protobuf`, and the kernel was restarted and run again from the top.
 - **Observed result:** 12 of 12 code cells ran without error in 906.0 s. Held-out test `denoising_mse` was 0.028245 for the frozen model and 0.027997 after adaptation. Kept-region PSNR rose from 25.30 to 25.59 dB and SSIM from 0.9379 to 0.9420. The reloaded adapter gave the same denoising loss (`denoising_mse_diff` 0.0) and a `mean_abs_pixel_diff` of 0.068 on the 0–255 scale, inside the asserted tolerance of 1.0.
-- **Caveats:** one run on one seeded split. This is sample-sanity evidence, not a benchmark. The BYOD branch was not exercised, so the status remains `Candidate`.
+- **Caveats:** one run on one seeded split. This is sample-sanity evidence, not a benchmark.
+
+The BYOD branch was run at the same commit:
+
+- **Date:** 2026-09-29
+- **Subject:** the same notebook and commit, with `USE_BYOD = True` and `BYOD_PATH` set in the executed copy only
+- **Runtime:** as above
+- **Procedure:** a zip of 12 CC0 research-grade iNaturalist photographs (6 Northern Cardinal, 6 Blue Jay) with a `captions.csv` was built inside the kernel, each photograph checked against a pinned SHA-256. Six records named their own rectangular mask and six used the centre mask. After `Run all`, the committed BYOD cell was re-run against three incompatible zips.
+- **Observed result:** 13 of 13 code cells ran without error in 639.7 s. The 12 records were split 8 / 2 / 2 by caption and passed through fine-tuning, evaluation, export and reload. A `captions.csv` without its `caption` column, a 200 × 200 image and a mask whose size differed from its photograph were each refused with a message naming the failed rule, before any model ran on them.
+- **Caveats:** with one test photograph per caption, these numbers show that the BYOD path runs, not how well the model adapts to such data.
 
 ## References
 
