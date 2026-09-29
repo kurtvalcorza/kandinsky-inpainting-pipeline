@@ -442,8 +442,13 @@ def build_unet(weights_dir: Path, *, dtype: Any, use_lora: bool) -> Any:
         names = lora_parameter_names(model)
         if len(names) != LORA_TENSORS:
             raise ValueError(f"adapter attached {len(names)} LoRA tensors, expected {LORA_TENSORS}")
+        import torch
+
+        name_set = set(names)
         for name, param in model.named_parameters():
-            if name in names:
+            if name in name_set:
+                # LoRA tensors are kept in float32 so AdamW state and updates do not underflow in float16.
+                param.data = param.data.to(torch.float32)
                 param.requires_grad_(True)
                 if ".lora_B." in name:
                     param.data.zero_()
@@ -753,7 +758,9 @@ class KandinskyInpaintPipeline:
                 noise = torch.randn(latents.shape, generator=generator).to(self.device, self.dtype)
                 timesteps = torch.full((len(batch),), timestep, device=self.device, dtype=torch.long)
                 noisy = scheduler.add_noise(latents.float(), noise.float(), timesteps).to(self.dtype)
-                with torch.inference_mode():
+                use_amp = self.dtype == torch.float16
+                autocast = torch.autocast(device_type=self.device.split(":")[0], dtype=torch.float16, enabled=use_amp)
+                with torch.inference_mode(), autocast:
                     prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
                 losses = ((prediction.float() - noise.float()) ** 2).mean(dim=(1, 2, 3))
                 for index, value in enumerate(losses.tolist()):
@@ -786,7 +793,11 @@ class KandinskyInpaintPipeline:
         seed: int = 0,
         progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        """Train only the bounded LoRA tensor set on the inpainting noise-prediction objective."""
+        """Train only the bounded LoRA tensor set on the inpainting noise-prediction objective.
+
+        AdamW on the float32 LoRA tensors, float16 autocast with a ``GradScaler`` on CUDA (float32 on CPU), loss in
+        float32, gradient-norm clipping at 1.0. Epoch 0 records the frozen model; the lowest validation loss is kept.
+        """
         if not self.use_lora:
             raise ValueError("adapt() needs a pipeline built with use_lora=True")
         if not isinstance(epochs, int) or not 1 <= epochs <= 50:
@@ -817,6 +828,8 @@ class KandinskyInpaintPipeline:
             raise ValueError(f"{n_trainable} trainable parameters, expected {LORA_PARAMETERS}")
         initial_state = {key: value.detach().clone() for key, value in model.state_dict().items() if key in name_set}
         optimizer = torch.optim.AdamW(parameters, lr=lr, weight_decay=0.0)
+        use_amp = self.dtype == torch.float16
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
         scheduler = self._noise_scheduler()
         generator = torch.Generator(device="cpu").manual_seed(seed)
 
@@ -859,12 +872,15 @@ class KandinskyInpaintPipeline:
                     noise = torch.randn(latents.shape, generator=generator).to(self.device, self.dtype)
                     timesteps = torch.randint(0, NUM_TRAIN_TIMESTEPS, (len(batch),), generator=generator).to(self.device)
                     noisy = scheduler.add_noise(latents.float(), noise.float(), timesteps).to(self.dtype)
-                    prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
+                    with torch.autocast(device_type=self.device.split(":")[0], dtype=torch.float16, enabled=use_amp):
+                        prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
                     loss = torch.nn.functional.mse_loss(prediction.float(), noise.float())
                     optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(parameters, 1.0)
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     losses.append(float(loss.detach()))
                     n_steps += 1
                 model.eval()
@@ -905,6 +921,8 @@ class KandinskyInpaintPipeline:
             "best_epoch": best_epoch,
             "lr": lr,
             "batch_size": batch_size,
+            "optimizer": "AdamW (weight_decay 0, grad-norm clip 1.0)",
+            "precision": "float16 autocast + GradScaler" if use_amp else "float32",
         }
         return {
             "history": history,

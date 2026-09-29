@@ -144,6 +144,9 @@ def test_adapt_minimises_loss_and_records_history(monkeypatch):
     assert result["best_epoch"] in (0, 1, 2)
     assert pipe.adapter is not None
     assert pipe.adapter["epochs"] == 2
+    # float32 on CPU; on CUDA the record reads "float16 autocast + GradScaler" (LoRA tensors stay float32)
+    assert pipe.adapter["precision"] == "float32"
+    assert pipe.adapter["optimizer"].startswith("AdamW")
 
 
 def test_adapt_transactional_guarantee_on_error(monkeypatch):
