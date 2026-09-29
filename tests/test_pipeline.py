@@ -22,7 +22,9 @@ from kandinsky_inpainting_pipeline import (
     SCORER_REVISION,
     dataset_digest,
     preprocess_image,
+    prompt_seed,
     stage_missing_files,
+    unet_keep_mask,
     validate_dataset,
     validate_prompts,
     verify_prior_snapshot,
@@ -195,3 +197,41 @@ def test_dataset_digest_is_deterministic(forbid_model_imports):
     r2 = synthetic_records(4)
     assert dataset_digest(r1) == dataset_digest(r2)
     assert len(dataset_digest(r1)) == 64
+
+
+def test_unet_keep_mask_inverts_the_repository_inpaint_convention(forbid_model_imports):
+    """Records use 1 = repaint; the Kandinsky 2.2 inpainting UNet's mask channel uses 1 = keep
+    (diffusers v0.40.0 pipeline_kandinsky2_2_inpainting.py L238 `mask = 1 - mask`, L452, L479)."""
+    import numpy as np
+
+    inpaint = np.zeros((1, 1, 4, 4), dtype=np.float32)
+    inpaint[..., 1:3, 1:3] = 1.0
+    keep = unet_keep_mask(inpaint)
+    assert keep.dtype == np.float32
+    assert keep[..., 1:3, 1:3].sum() == 0.0
+    assert keep.sum() == 16 - 4
+    np.testing.assert_array_equal(unet_keep_mask(keep), inpaint)
+
+
+def test_prompt_seed_is_stable_across_processes(forbid_model_imports):
+    """The prior's sampler seed must not depend on Python's per-process string-hash salt."""
+    import os
+    import subprocess
+    import sys
+
+    prompts = ["a photo of a blue jay", "", "étude"]
+    expected = [prompt_seed(p) for p in prompts]
+    assert all(0 <= s < 2**31 for s in expected)
+    assert expected[0] == int.from_bytes(hashlib.sha256(prompts[0].encode("utf-8")).digest()[:4], "big") & 0x7FFFFFFF
+    code = (
+        "import json, sys; from kandinsky_inpainting_pipeline import prompt_seed; "
+        "print(json.dumps([prompt_seed(p) for p in json.loads(sys.argv[1])]))"
+    )
+    src_path = os.pathsep.join([str(ROOT / "src"), os.environ.get("PYTHONPATH", "")])
+    for hash_seed in ("1", "2"):
+        out = subprocess.run(
+            [sys.executable, "-c", code, json.dumps(prompts)],
+            env={**os.environ, "PYTHONHASHSEED": hash_seed, "PYTHONPATH": src_path},
+            capture_output=True, text=True, check=True,
+        ).stdout
+        assert json.loads(out) == expected

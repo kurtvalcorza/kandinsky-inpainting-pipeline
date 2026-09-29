@@ -1,6 +1,6 @@
-"""Static release-asset validation for the Kandinsky 2.2 text-to-image DIMER pipeline.
+"""Static release-asset validation for the Kandinsky 2.2 inpainting DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4, with the §3.5 guided layer), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1-PAR3).
 
@@ -27,10 +27,17 @@ EXPECTED_PROFILE = "E2E"
 EXPECTED_MODEL_ID = "kandinsky-community/kandinsky-2-2-decoder-inpaint"
 PIPELINE_CLASS = "KandinskyInpaintPipeline"
 MODEL_LOAD_EXPR = (
-    f"{PIPELINE_CLASS}.from_pretrained(weights_dir=WEIGHTS_DIR, prior_dir=PRIOR_WEIGHTS_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), use_lora=True)"
+    f"{PIPELINE_CLASS}.from_pretrained(weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), use_lora=True)"
 )
-# Pinned snapshots (shared prior, CLIP scorer)
-KNOWN_SHAS: frozenset[str] = frozenset({"9fc51ad5732afc5d031724219d22e6c42179c5a8", "1a25a446712ba5ee05982a381eed697ef9b435cf"})
+# Pinned snapshots (shared prior, CLIP scorer) and the upstream decoder commit that first published the packaged
+# safetensors files (the model card's date_published source)
+KNOWN_SHAS: frozenset[str] = frozenset(
+    {
+        "9fc51ad5732afc5d031724219d22e6c42179c5a8",
+        "1a25a446712ba5ee05982a381eed697ef9b435cf",
+        "48ea15d787d96dd68682d436c23be99b34b18aca",
+    }
+)
 BYOD_GATES = ("USE_BYOD",)
 EXPECTED_OUTPUTS = (
     "outputs/kandinsky_inpainting_sample_captions.csv",
@@ -42,48 +49,83 @@ EXPECTED_OUTPUTS = (
 )
 CODE_MARKERS = (
     "use_lora=True)",
-    "fetched_kandinsky_2_2_prior = stage_missing_prior_files(PRIOR_WEIGHTS_DIR, allow_download=True)",
-    "fetched_clip_vit_b_32_laion2b = stage_missing_scorer_files(SCORER_WEIGHTS_DIR, allow_download=True)",
+    "fetched_kandinsky_2_2_prior = stage_missing_prior_files(DEFAULT_PRIOR_DIR, allow_download=True)",
+    "fetched_clip_vit_b_32_laion2b = stage_missing_scorer_files(DEFAULT_SCORER_DIR, allow_download=True)",
     "USE_BYOD = False",
+    "BYOD_PATH = ''",
     "splits = fetch_sample_dataset(cache_dir='weights/inat-birds')",
-    "splits = split_dataset(load_byod_dataset(byod_path), seed=0)",
+    "byod_records = load_byod_dataset(byod_path)",
+    "splits = split_dataset(byod_records, seed=0)",
+    "validate_dataset(splits[name], min_records=1)['records']",
     "dataset_report = dataset_manifest(",
     "write_dataset_csv(test_records, 'outputs/kandinsky_inpainting_sample_captions.csv')",
     "validate_dataset(records)",
     "encode_report = pipe.encode_prompts(all_prompts)",
     "released = pipe.release_prior()",
     "frozen_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
-    "frozen_generation = pipe.generate(generation_prompts, seed=1000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
-    "frozen_scores = score_generations(scorer, frozen_generation['images'], references=test_records)",
-    "real_ceiling = real_photo_baseline(scorer, test_records)",
+    "frozen_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
+    "frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)",
+    "frozen_clip = score_generations(scorer, frozen_images, test_prompts)",
+    "fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks)], test_prompts)",
+    "real_clip = score_generations(scorer, test_images, test_prompts)",
     "adapt_result = pipe.adapt(",
     "lr=LEARNING_RATE",
     "batch_size=BATCH_SIZE",
     "adapted_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
-    "adapted_scores = score_generations(scorer, adapted_generation['images'], references=test_records)",
+    "adapted_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
+    "adapted_preservation = score_inpainting_preservation(test_images, adapted_images, test_masks)",
     "assert best['val_loss'] <= adapt_result['history'][0]['val_loss']",
     "assert abs(adapted_val['denoising_mse'] - best['val_loss']) < 1e-4",
-    "new_generation = pipe.generate([NEW_PROMPT, NEW_PROMPT], seed=2000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
+    "new_generation = pipe.generate(new_records, seed=2000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
     "pipe.save_artifact(artifact_dir, metadata=",
-    "reloaded = KandinskyInpaintPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, prior_dir=PRIOR_WEIGHTS_DIR, device=pipe.device)",
+    "reloaded = KandinskyInpaintPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=pipe.device)",
     "reloaded.import_prompt_cache(pipe.export_prompt_cache())",
     "assert parity['denoising_mse_diff'] < 1e-6 and parity['mean_abs_pixel_diff'] < 1.0",
     "'safetensors_only': True",
     "'remote_code_executed': False",
     "'data_base_url': CORPUS_BASE_URL",
+    "RUN_ACTIVITY = True",
+    "if RUN_ACTIVITY:",
 )
 MARKDOWN_MARKERS = (
-    "**Capability:** text-to-image generation with a 1.25 B-parameter UNet diffusion model, held-out denoising-loss and CLIP-scored evaluation, and bounded LoRA fine-tuning to a set of captioned photographs",
+    "**Capability:** masked image inpainting with a 1.25 B-parameter UNet diffusion model, held-out denoising-loss, preservation and CLIP-scored evaluation, and bounded LoRA fine-tuning to a set of captioned photographs",
     "Three pinned snapshots",
     "prior pipeline can be released",
-    "Generation has no ground",
+    "keep mask",
+    "centre mask",
     "denoising loss",
-    "real-photo ceiling",
+    "preservation",
+    "mean-fill floor",
+    "original-photograph ceiling",
     "not a human judgement",
     "Apache-2.0",
     "sample-sanity",
     "CC0",
 )
+# NOTEBOOK_SPEC 2.2 §3.5 guided layer (GDL1-GDL15, SHOULD): the markers this repository commits to carrying.
+GUIDED_MARKERS = (
+    ("GDL1", "**Who this notebook is for.**"),
+    ("GDL2", "## How to use this notebook"),
+    ("GDL3", "**Roadmap.**"),
+    ("GDL4", "**Input → Model/System → Output.**"),
+    ("GDL5", "**Learning objectives:** by the end of this notebook you will be able to **explain**"),
+    ("GDL6", "<summary><strong>Glossary</strong>"),
+    ("GDL7", "**Predict before running:**"),
+    ("GDL7", "**Question tested:**"),
+    ("GDL8", "**What to notice:**"),
+    ("GDL8", "**Expected result:**"),
+    ("GDL9", "<summary>Check your reasoning (open after answering)</summary>"),
+    ("GDL10", "**Predict → Change one thing → Run → Observe → Explain.**"),
+    ("GDL11", "> **Infrastructure.**"),
+    ("GDL12", "· [Concept]"),
+    ("GDL12", "· [Evaluation practice]"),
+    ("GDL12", "· [Engineering]"),
+    ("GDL13", "## Troubleshooting"),
+    ("GDL14", "## Conclude with evidence"),
+    ("GDL14", "Complete this in your own words"),
+)
+MIN_PREDICTIONS = 5
+MIN_CHECKPOINTS = 5
 # Direct-library use that must stay inside the carried module cells (G2).
 FORBIDDEN_OUTSIDE_MODULE = (
     "from huggingface_hub import",
@@ -107,7 +149,7 @@ FORBIDDEN_OUTSIDE_MODULE = (
     "CLIPModel",
 )
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -118,6 +160,7 @@ UNSUPPORTED_CLAIMS = re.compile(
     r"|benchmark superiority (is|was) (shown|established)|is release-grade|now release-grade)\b",
     re.I,
 )
+INTERNAL_VOCABULARY = re.compile(r"\b(workbench|fleet|wave|build queue|inventory row|matrix row)\b", re.I)
 REQUIRED_CARD_HEADINGS = [
     (4, "Description"),
     (4, "Intended Use and Limitations"),
@@ -285,12 +328,16 @@ def validate_model_card() -> None:
     text = _read(path)
     _check(text.startswith("---\n"), "MODEL_CARD.md must start with YAML front matter")
     front = text.split("---", 2)[1]
-    for key in ("license:", "model_card_spec:", "base_model:"):
+    for key in ("license:", "model_card_spec:", "pipeline_tag:", "base_model:", "date_published:"):
         _check(key in front, f"MODEL_CARD.md missing front-matter field: {key}")
+    date = re.search(r'^date_published: "?(\d{4}(?:-\d{2}(?:-\d{2})?)?|null)"?\s*$', front, re.M)
+    _check(date is not None, "MODEL_CARD.md date_published must be YYYY, YYYY-MM, YYYY-MM-DD or null (G2)")
     _check('model_card_spec: "1.2"' in front or 'model_card_spec: "1.1"' in front, "MODEL_CARD.md model_card_spec must be 1.2 or 1.1")
     _check(f"base_model: {EXPECTED_MODEL_ID}" in front, "MODEL_CARD.md base_model must equal MODEL_ID")
     _check(not PLACEHOLDER.search(text), "MODEL_CARD.md contains placeholder/scaffolding text")
     _check(not UNSUPPORTED_CLAIMS.search(text), "MODEL_CARD.md makes an unsupported release/benchmark claim")
+    internal = INTERNAL_VOCABULARY.search(text)
+    _check(internal is None, f"MODEL_CARD.md uses non-public or maintenance vocabulary (G14/G17): {internal.group(0) if internal else ''!r}")
     h1 = re.findall(r"(?m)^# (?!#)(.+)$", text)
     _check(len(h1) == 1, f"MODEL_CARD.md must contain exactly one H1, got {len(h1)}")
     found = []
@@ -519,7 +566,28 @@ def _validate_notebook_content(
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
     _check(not missing_md, f"{path.name}: missing learner-facing markers: {missing_md}")
     _check(f"**Profile:** `{EXPECTED_PROFILE}`" in markdown, f"{path.name}: markdown must state the profile")
+    missing_gdl = [f"{gdl}: {marker}" for gdl, marker in GUIDED_MARKERS if marker not in markdown]
+    _check(not missing_gdl, f"{path.name}: missing guided-layer markers (NOTEBOOK_SPEC 2.2 §3.5): {missing_gdl}")
+    _check(markdown.count("**Predict before running:**") >= MIN_PREDICTIONS, f"{path.name}: at least {MIN_PREDICTIONS} predictions expected (GDL7)")
+    _check(markdown.count("Check your reasoning") >= MIN_CHECKPOINTS, f"{path.name}: at least {MIN_CHECKPOINTS} Check your reasoning boxes expected (GDL9)")
+    _check(re.search(r"\bworkshop\b", markdown, re.I) is None, f"{path.name}: learner prose must call the artifact a notebook, not a workshop (GDL15)")
     _check(f"https://huggingface.co/{model_id}" in markdown, f"{path.name}: references must link {model_id}")
+
+
+def _validate_infrastructure_cells(path: Path, notebook: dict, embedded: list[int]) -> None:
+    """GDL11: generated setup cells are titled Infrastructure and collapsed; learner-facing stage cells are not."""
+    titled = []
+    for index, cell in enumerate(notebook["cells"]):
+        if cell.get("cell_type") != "code":
+            continue
+        source = _cell_source(cell)
+        is_infra = index in embedded or source.startswith("# @title Infrastructure:")
+        collapsed = cell.get("metadata", {}).get("cellView") == "form" and cell.get("metadata", {}).get("jupyter", {}).get("source_hidden") is True
+        if is_infra:
+            _check(collapsed, f"{path.name}: infrastructure cell {index} must be collapsed (cellView form, source_hidden) (GDL11)")
+        if source.startswith("# @title Infrastructure:"):
+            titled.append(index)
+    _check(len(titled) >= 2, f"{path.name}: the install and model cells must be titled '# @title Infrastructure: ...' (GDL11)")
 
 
 def validate_notebooks() -> None:
@@ -536,6 +604,7 @@ def validate_notebooks() -> None:
     _validate_identity(path, code_cells, embedded, revision)
     _validate_parity(path, notebook, code_cells, build)
     _validate_notebook_content(path, code_cells, markdown, embedded)
+    _validate_infrastructure_cells(path, notebook, embedded)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")

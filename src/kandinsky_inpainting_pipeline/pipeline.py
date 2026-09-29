@@ -81,6 +81,14 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def prompt_seed(prompt: str) -> int:
+    """Seed for the prior's sampler: the first 4 bytes of SHA-256(prompt), masked to 31 bits.
+
+    Stable across processes, unlike ``hash(prompt)``, which Python salts per interpreter.
+    """
+    return int.from_bytes(hashlib.sha256(prompt.encode("utf-8")).digest()[:4], "big") & 0x7FFFFFFF
+
+
 def _read_manifest(dir_path: Path) -> dict[str, Any]:
     manifest_path = dir_path / MANIFEST_NAME
     if not manifest_path.is_file():
@@ -229,6 +237,19 @@ def create_center_mask(image_or_size: Any) -> Any:
     mask = Image.new("L", (width, height), 0)
     ImageDraw.Draw(mask).rectangle((width // 4, height // 4, 3 * width // 4, 3 * height // 4), fill=255)
     return mask
+
+
+def unet_keep_mask(inpaint_mask: Any) -> Any:
+    """Convert an inpaint mask (1 = region to repaint, the repository convention) into the Kandinsky 2.2 inpainting
+    UNet's mask channel (1 = region to keep).
+
+    The repository convention (255 / 1 = repaint) is what records, ``create_center_mask`` and ``generate`` accept.
+    The UNet expects the opposite convention: diffusers v0.40.0
+    ``pipelines/kandinsky2_2/pipeline_kandinsky2_2_inpainting.py`` inverts the user mask (``mask = 1 - mask``,
+    L238), multiplies the image latents by it (L452) and concatenates it as the last UNet input channel (L479).
+    Works on NumPy arrays and torch tensors alike.
+    """
+    return 1.0 - inpaint_mask
 
 
 def _check_record(record: Any, index: int) -> dict[str, Any]:
@@ -429,8 +450,13 @@ def build_unet(weights_dir: Path, *, dtype: Any, use_lora: bool) -> Any:
         names = lora_parameter_names(model)
         if len(names) != LORA_TENSORS:
             raise ValueError(f"adapter attached {len(names)} LoRA tensors, expected {LORA_TENSORS}")
+        import torch
+
+        name_set = set(names)
         for name, param in model.named_parameters():
-            if name in names:
+            if name in name_set:
+                # LoRA tensors are kept in float32 so AdamW state and updates do not underflow in float16.
+                param.data = param.data.to(torch.float32)
                 param.requires_grad_(True)
                 if ".lora_B." in name:
                     param.data.zero_()
@@ -530,15 +556,22 @@ class KandinskyInpaintPipeline:
         return self._prior_pipeline
 
     def encode_prompts(self, prompts: Sequence[str]) -> dict[str, Any]:
-        """Encode prompts with the prior into CLIP image embeddings."""
+        """Encode prompts with the prior into CLIP image embeddings.
+
+        Each prompt's prior sampler is seeded with ``prompt_seed(prompt)``, so a prompt's embedding does not depend
+        on the other prompts encoded with it or on Python's per-process string-hash salt.
+        """
         distinct = sorted(set([NEGATIVE_PROMPT, *validate_prompts(prompts)]))
         missing = [p for p in distinct if p not in self._prompt_cache]
         if not missing:
             return {"n_cached": len(self._prompt_cache), "n_new": 0}
+        import torch
+
         prior = self._get_prior()
         prior.set_progress_bar_config(disable=True)
         for prompt in missing:
-            out = prior(prompt=prompt, num_inference_steps=25)
+            generator = torch.Generator(device=self.device).manual_seed(prompt_seed(prompt))
+            out = prior(prompt=prompt, num_inference_steps=25, generator=generator)
             self._prompt_cache[prompt] = {
                 "image_embeds": out.image_embeds[0].detach().to("cpu", self.dtype),
                 "negative_image_embeds": out.negative_image_embeds[0].detach().to("cpu", self.dtype),
@@ -659,7 +692,12 @@ class KandinskyInpaintPipeline:
         }
 
     def _conditioning(self, records: Sequence[Mapping[str, Any]]) -> tuple[Any, Any, Any]:
-        """Encode images and masks into the nine-channel inpainting UNet conditioning tensors."""
+        """Encode images and masks into latents, masked latents and the latent-resolution inpaint mask.
+
+        Returns ``(latents, masked_latents, inpaint_mask_latents)``: ``masked_latents`` keeps the latents outside the
+        repaint region (zero inside it), and ``inpaint_mask_latents`` is 1 inside the repaint region (repository
+        convention). ``_predict_noise`` converts it to the UNet's keep-mask channel with ``unet_keep_mask``.
+        """
         import torch
         import torch.nn.functional as F
 
@@ -689,11 +727,14 @@ class KandinskyInpaintPipeline:
         timesteps: Any,
         image_embeds: Any,
         masked_latents: Any,
-        mask_latents: Any,
+        inpaint_mask_latents: Any,
     ) -> Any:
+        """Predict noise from the nine-channel input ``[noisy latents, masked latents, keep mask]``: the channel order
+        and keep-mask convention of diffusers v0.40.0 ``KandinskyV22InpaintPipeline`` (L452, L479)."""
         import torch
 
-        model_input = torch.cat([noisy, masked_latents, mask_latents], dim=1)
+        keep = unet_keep_mask(inpaint_mask_latents).to(noisy.dtype)
+        model_input = torch.cat([noisy, masked_latents.to(noisy.dtype), keep], dim=1)
         output = self.unet(
             sample=model_input,
             timestep=timesteps,
@@ -732,7 +773,9 @@ class KandinskyInpaintPipeline:
                 noise = torch.randn(latents.shape, generator=generator).to(self.device, self.dtype)
                 timesteps = torch.full((len(batch),), timestep, device=self.device, dtype=torch.long)
                 noisy = scheduler.add_noise(latents.float(), noise.float(), timesteps).to(self.dtype)
-                with torch.inference_mode():
+                use_amp = self.dtype == torch.float16
+                autocast = torch.autocast(device_type=self.device.split(":")[0], dtype=torch.float16, enabled=use_amp)
+                with torch.inference_mode(), autocast:
                     prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
                 losses = ((prediction.float() - noise.float()) ** 2).mean(dim=(1, 2, 3))
                 for index, value in enumerate(losses.tolist()):
@@ -765,7 +808,11 @@ class KandinskyInpaintPipeline:
         seed: int = 0,
         progress: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
-        """Train only the bounded LoRA tensor set on the inpainting noise-prediction objective."""
+        """Train only the bounded LoRA tensor set on the inpainting noise-prediction objective.
+
+        AdamW on the float32 LoRA tensors, float16 autocast with a ``GradScaler`` on CUDA (float32 on CPU), loss in
+        float32, gradient-norm clipping at 1.0. Epoch 0 records the frozen model; the lowest validation loss is kept.
+        """
         if not self.use_lora:
             raise ValueError("adapt() needs a pipeline built with use_lora=True")
         if not isinstance(epochs, int) or not 1 <= epochs <= 50:
@@ -796,6 +843,8 @@ class KandinskyInpaintPipeline:
             raise ValueError(f"{n_trainable} trainable parameters, expected {LORA_PARAMETERS}")
         initial_state = {key: value.detach().clone() for key, value in model.state_dict().items() if key in name_set}
         optimizer = torch.optim.AdamW(parameters, lr=lr, weight_decay=0.0)
+        use_amp = self.dtype == torch.float16
+        scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
         scheduler = self._noise_scheduler()
         generator = torch.Generator(device="cpu").manual_seed(seed)
 
@@ -838,12 +887,15 @@ class KandinskyInpaintPipeline:
                     noise = torch.randn(latents.shape, generator=generator).to(self.device, self.dtype)
                     timesteps = torch.randint(0, NUM_TRAIN_TIMESTEPS, (len(batch),), generator=generator).to(self.device)
                     noisy = scheduler.add_noise(latents.float(), noise.float(), timesteps).to(self.dtype)
-                    prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
+                    with torch.autocast(device_type=self.device.split(":")[0], dtype=torch.float16, enabled=use_amp):
+                        prediction = self._predict_noise(noisy, timesteps, image_embeds, masked_latents, mask_latents)
                     loss = torch.nn.functional.mse_loss(prediction.float(), noise.float())
                     optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(parameters, 1.0)
-                    optimizer.step()
+                    scaler.step(optimizer)
+                    scaler.update()
                     losses.append(float(loss.detach()))
                     n_steps += 1
                 model.eval()
@@ -884,6 +936,8 @@ class KandinskyInpaintPipeline:
             "best_epoch": best_epoch,
             "lr": lr,
             "batch_size": batch_size,
+            "optimizer": "AdamW (weight_decay 0, grad-norm clip 1.0)",
+            "precision": "float16 autocast + GradScaler" if use_amp else "float32",
         }
         return {
             "history": history,

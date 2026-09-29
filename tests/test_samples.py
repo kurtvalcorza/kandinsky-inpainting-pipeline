@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from conftest import synthetic_image, synthetic_records
+from conftest import synthetic_image, synthetic_mask, synthetic_records
 from kandinsky_inpainting_pipeline import (
     CAPTION_TEMPLATE,
     CORPUS_BASE_URL,
@@ -137,3 +137,51 @@ def test_byod_directory_and_zip_loaders(tmp_path, forbid_model_imports):
     (folder / "captions.csv").write_text("id,file\nx,y\n", encoding="utf-8")
     with pytest.raises(ValueError, match="missing columns"):
         load_byod_dataset(folder)
+
+
+def _byod_zip(tmp_path, rows, files):
+    archive = tmp_path / "masks.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("captions.csv", "id,file,caption,mask\n" + "".join(",".join(r) + "\n" for r in rows))
+        for name, image in files.items():
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            zf.writestr(name, buffer.getvalue())
+    return archive
+
+
+def test_byod_reads_optional_masks_and_falls_back_to_centre_mask(tmp_path, forbid_model_imports):
+    from kandinsky_inpainting_pipeline import create_center_mask, validate_dataset
+
+    corner = synthetic_mask()
+    corner.paste(0, (0, 0, 640, 480))
+    corner.paste(255, (0, 0, 100, 100))
+    files = {f"img{i}.png": synthetic_image(seed=i) for i in range(4)}
+    files["img0_mask.png"] = corner
+    rows = [["r0", "img0.png", "a red bird", "img0_mask.png"]]
+    rows += [[f"r{i}", f"img{i}.png", "a red bird", ""] for i in (1, 2, 3)]
+    loaded = load_byod_dataset(_byod_zip(tmp_path, rows, files))
+    assert "mask_image" in loaded[0] and all("mask_image" not in r for r in loaded[1:])
+    checked = validate_dataset(loaded)["records"]
+    assert checked[0]["mask_image"].tobytes() == corner.tobytes()
+    assert checked[1]["mask_image"].tobytes() == create_center_mask(checked[1]["image"]).tobytes()
+
+
+def test_byod_mask_refusals_are_actionable(tmp_path, forbid_model_imports):
+    image = synthetic_image(seed=0)
+    rows = [["r0", "img0.png", "a red bird", "missing.png"]]
+    with pytest.raises(ValueError, match=r"row 2 \(id 'r0'\): mask file 'missing.png' is not in the dataset"):
+        load_byod_dataset(_byod_zip(tmp_path, rows, {"img0.png": image}))
+    small = synthetic_mask(width=320, height=240)
+    rows = [["r0", "img0.png", "a red bird", "m.png"]]
+    with pytest.raises(ValueError, match=r"mask 'm.png' is 320x240 px but its image is 640x480 px"):
+        load_byod_dataset(_byod_zip(tmp_path, rows, {"img0.png": image, "m.png": small}))
+    rows = [["r0", "nope.png", "a red bird", ""]]
+    with pytest.raises(ValueError, match=r"image file 'nope.png' is not in the dataset"):
+        load_byod_dataset(_byod_zip(tmp_path, rows, {"img0.png": image}))
+    rows = [["r0", "img0.png", "a red bird", "bad.png"]]
+    archive = _byod_zip(tmp_path, rows, {"img0.png": image})
+    with zipfile.ZipFile(archive, "a") as zf:
+        zf.writestr("bad.png", b"not an image")
+    with pytest.raises(ValueError, match=r"mask file 'bad.png' is not a readable image"):
+        load_byod_dataset(archive)
