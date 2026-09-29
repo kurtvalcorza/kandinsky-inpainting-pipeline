@@ -329,15 +329,17 @@ TEMPLATE = {
             "md": (
                 "**What to notice:** 36 / 12 / 12 records and six distinct captions on the sample path, `'disjoint'` listing the "
                 "same counts, a shorter side of a few hundred pixels (every photograph is resized and centre-cropped to 512²), "
-                "a `repaint_fraction` of 0.25, a written `outputs/{stem}_sample_captions.csv` in the run directory in the shape "
+                "a `repaint_fraction` between 0.25 (a square photograph) and about 0.33 (a 4:3 photograph), a written `outputs/{stem}_sample_captions.csv` in the run directory in the shape "
                 "BYOD expects (its `mask` column is empty because the sample uses the centre mask), and every probe rejected before "
                 "any model runs, each message naming the failed rule. With `USE_BYOD = True` the stage first reports how many of "
                 "your records brought their own mask, and an invalid zip stops this cell with a `RuntimeError` that repeats the "
                 "validator's message.\n\n"
                 + CHECK.format(
                     body=(
-                        "The mask box spans the middle half of the width and the middle half of the height, so it covers "
-                        "0.5 × 0.5 = 0.25 of the pixels. All four probes are refused: a missing caption and a duplicate id "
+                        "The mask box spans the middle half of the photograph's width and height, 0.5 × 0.5 = 0.25 of its "
+                        "pixels. The centre crop to 512² then trims the longer side but keeps the whole box, so inside the "
+                        "model's square input the box covers more: 0.25 for a square photograph, 0.5 × 0.667 ≈ 0.333 for a 4:3 "
+                        "one. That is why `repaint_fraction` varies between photographs. All four probes are refused: a missing caption and a duplicate id "
                         "break the record schema, a 200 px side is below the 256 px minimum, and a mask of a different size "
                         "cannot be aligned with its photograph. Validation never looks at *content*: a mask over the sky and a "
                         "caption that describes another bird would both pass."
