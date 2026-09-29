@@ -61,9 +61,7 @@ and the runtime pins. Regenerate it with `python tools/build_notebook.py`; never
 
 ## Release status
 
-**Release-grade.** The tutorial notebook passed a clean-runtime `Run all` and the REL12 BYOD journey on a Kaggle T4
-at `6fd3ab4` (2026-09-29). CI runs `ruff`, the offline unit suite, `tools/validate_release_assets.py` and
-`tools/build_notebook.py --check`; `STATUS.md` and `docs/release-verification.md` hold the records.
+**Candidate** — the notebook stops at its install cell on hosted runtimes that preload `numpy`, `protobuf` and `cuda-bindings` (Google Colab and Kaggle), because the pinned install replaces those loaded packages and the cell then asks for a manual runtime restart. Notebook Specification 2.2 RUN1 and RUN10 forbid a manual restart on the `Run all` path, so the tutorial is not release-ready. The Kaggle runs recorded in `docs/release-verification.md` completed only because the executor restarted the kernel automatically; they remain valid evidence for everything after the install cell. Found in a Colab `Run all` on 2026-09-29; the fix (an isolated, hash-locked environment for the tutorial stages) is in progress. See `STATUS.md` and `docs/release-verification.md`.
 
 ## License
 
