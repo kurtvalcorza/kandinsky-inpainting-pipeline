@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Generate a STANDALONE DIMER tutorial notebook (NOTEBOOK_SPEC 2.0 §4) from repository sources — /2.
+"""Generate a STANDALONE DIMER tutorial notebook (NOTEBOOK_SPEC 2.2 §4) from repository sources — /3.
 
 /2 adds to /1: multi-module packages (one tagged cell per module, topologically ordered, package-relative
 imports removed), template-declared rewrite rules, and extra pinned snapshots (`extra_weights`) for packages
 that stage more than one manifest. Single-module templates render as in /1 except for the generator version.
+
+/3 adds the NOTEBOOK_SPEC 2.2 §3.5 guided-layer hooks: optional `orientation` markdown cells after the opening,
+optional `after` markdown following a stage's code cell, section tags on the generated sections, and
+Infrastructure labelling of the generated cells (`# @title Infrastructure: ...` on the install and model cells,
+`cellView: form` / `jupyter.source_hidden` metadata on every generated cell, including the carried module cells,
+whose source stays byte-identical to the module so PAR1 is unchanged).
 
 Usage (from the repository root, or with --repo):
     python tools/build_notebook.py            # write tutorials/<notebook_name>
@@ -27,8 +33,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-GENERATOR_VERSION = "build_notebook.py/2"
-NOTEBOOK_SPEC = "2.0"
+GENERATOR_VERSION = "build_notebook.py/3"
+NOTEBOOK_SPEC = "2.2"
 
 # ST2: default rewrite rule; a template may replace it with its own `rewrites` list. Every rule must
 # match exactly once across the embedded modules, so a silent no-op is impossible.
@@ -97,6 +103,8 @@ def template_contract() -> dict[str, str]:
         "extra_weights": "OPTIONAL list of {key, var, dir, identity: [ID_CONST, REV_CONST], stage, verify} for additional pinned snapshots",
         "model_load": "OPTIONAL replacement for the default `<pipeline_class>.from_pretrained(weights_dir=WEIGHTS_DIR)` expression",
         "package_dir": "OPTIONAL repository-relative directory of the package (default 'src/<package>'; e.g. 'mitra_pipeline' for a root-level package)",
+        "orientation": "OPTIONAL list of markdown cells inserted after the opening cell (How to use, roadmap, task contract, glossary; §3.5)",
+        "section_tags": "OPTIONAL suffix for the generated section headings 1-3 (default ' · [Engineering]')",
     }
 
 
@@ -317,7 +325,19 @@ def _md(source: str) -> dict[str, Any]:
 def _code(source: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"cell_type": "code", "execution_count": None, "id": "", "metadata": metadata or {}, "outputs": [], "source": source.rstrip("\n")}
 
-# NOTEBOOK_SPEC 2.0 §3.4/§28 declarations. A template MAY override `mode`, `run_all` and `byod`;
+
+# GDL11: generated cells are infrastructure, collapsed by default (Colab `cellView: form`, Jupyter `source_hidden`).
+INFRASTRUCTURE_METADATA: dict[str, Any] = {"cellView": "form", "jupyter": {"source_hidden": True}}
+INFRASTRUCTURE_NOTE = (
+    "> **Infrastructure.** The code cell(s) in this section are collapsed. You may run them without studying their "
+    "implementation; they set up a reproducible, verified environment and are not learning objectives."
+)
+
+
+def _infra(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {**json.loads(json.dumps(INFRASTRUCTURE_METADATA)), **(extra or {})}
+
+# NOTEBOOK_SPEC 2.2 §3.4/§28 declarations. A template MAY override `mode`, `run_all` and `byod`;
 # E2E and ARTIFACT-INFERENCE templates MUST state `run_all` themselves (their default paths differ).
 MODES = ("REFERENCE", "GUIDED", "WORKSHOP")
 _RUN_ALL_DEFAULT = {
@@ -326,14 +346,14 @@ _RUN_ALL_DEFAULT = {
         "pinned snapshot, obtains the tutorial sample automatically, validates it into an input manifest before the model "
         "runs, runs the task locally in this kernel, writes the evaluation report, and exports machine-readable outputs "
         "with provenance. The default path needs no repository clone, no DIMER worker or service, no credential, no upload "
-        "dialog and no configuration edit (NOTEBOOK_SPEC 2.0 §5)."
+        "dialog and no configuration edit (NOTEBOOK_SPEC 2.2 §5)."
     ),
     "MULTI-CAPABILITY": (
         "Selecting **Run all** in a fresh supported runtime installs the pinned dependencies, stages and digest-verifies the "
         "pinned snapshot, obtains the tutorial sample automatically, validates it into an input manifest before the model "
         "runs, runs every demonstrated capability locally in this kernel with its own input/output contract, writes the "
         "evaluation report, and exports machine-readable outputs with provenance. The default path needs no repository "
-        "clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC 2.0 §5)."
+        "clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit (NOTEBOOK_SPEC 2.2 §5)."
     ),
 }
 _BYOD_DEFAULT = (
@@ -391,6 +411,9 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"**This notebook does not demonstrate:** {template['exclusions'].strip()}"
     )
     add(_md(header))
+    for cell in template.get("orientation", []):
+        add(_md(cell.format(**fmt)))
+    tag = template.get("section_tags", " · [Engineering]")
 
     prereq = list(template["prerequisites"]) + [
         f"- **External access:** the Hugging Face Hub only, to fetch the pinned `{ctx['MODEL_ID']}` snapshot (~{total_mb:.0f} MB in total) "
@@ -403,15 +426,17 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     ident_print = ", ".join(f"'{m}': {m}.__version__" for m in imports)
     add(
         _md(
-            "## 1. Install the pinned runtime\n\n"
+            f"## 1. Install the pinned runtime{tag}\n\n{INFRASTRUCTURE_NOTE}\n\n"
             "The dependency set is pinned exactly (the same `==` pins as the repository's `pyproject.toml` at the generating revision) and "
             "installed directly — there is no repository clone and no package install. If a pin replaces a distribution this runtime has already "
             "imported, the cell stops with a restart instruction rather than continuing with mixed versions. Look for a dictionary reporting the "
-            "notebook's source revision, Python, " + ", ".join(f"`{m}`" for m in imports) + " versions, and whether CUDA is available."
+            "notebook's source revision, Python, " + ", ".join(f"`{m}`" for m in imports) + " versions, and whether CUDA is available.\n\n"
+            "**Expected result:** one dictionary; `'cuda': True` on a GPU runtime. Installation messages before it are normal."
         )
     )
     add(
         _code(
+            "# @title Infrastructure: install the pinned runtime and print the versions\n"
             "import importlib\nimport importlib.metadata\nimport os\nimport platform\nimport subprocess\nimport sys\n\n"
             f"{pins_literal}\n"
             "NOTEBOOK_SOURCE = {\n"
@@ -426,14 +451,15 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'\n"
             f"{_INSTALL_GUARD}\n"
             f"import {', '.join(imports)}\n"
-            f"print({{'notebook_source': NOTEBOOK_SOURCE, 'python': platform.python_version(), {ident_print}, 'cuda': torch.cuda.is_available()}})"
+            f"print({{'notebook_source': NOTEBOOK_SOURCE, 'python': platform.python_version(), {ident_print}, 'cuda': torch.cuda.is_available()}})",
+            _infra(),
         )
     )
 
     for i, m in enumerate(ctx["modules"]):
         rel = f"{ctx['pkg_rel']}/{m}"
         if i == 0:
-            title = f"## 2. Pipeline code (carried verbatim from `{ctx['pkg_rel']}/` @ `{ctx['module_revision'][:12]}`)"
+            title = f"## 2. Pipeline code (carried verbatim from `{ctx['pkg_rel']}/` @ `{ctx['module_revision'][:12]}`){tag}\n\n{INFRASTRUCTURE_NOTE}"
             intro = (
                 f"\n\nThe next {n_mod} cell(s) **are** the repository's package, module by module in dependency order: the pinned identity constants, "
                 "snapshot verification (`verify_snapshot`), staged download (`stage_missing_files`), the named operational ceilings, the public "
@@ -445,7 +471,7 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
             add(_md(title + intro + f"\n\n**Module {i + 1}/{n_mod}:** `{rel}`"))
         else:
             add(_md(f"**Module {i + 1}/{n_mod}:** `{rel}` (carried verbatim; see the note above)"))
-        add(_code(ctx["embedded"][m], {"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}}))
+        add(_code(ctx["embedded"][m], _infra({"dimer": {"embedded_module": rel, "module_sha256": ctx["per_module_sha256"][rel]}})))
 
     manifest_literal = json.dumps(ctx["manifest"], indent=2, ensure_ascii=False)
     n_files = len(ctx["manifest"]["files"])
@@ -457,17 +483,20 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
     load_expr = template.get("model_load") or f"{template['pipeline_class']}.from_pretrained(weights_dir=WEIGHTS_DIR)"
     add(
         _md(
-            "## 3. Pin, stage and verify the model\n\n"
+            f"## 3. Pin, stage and verify the model{tag}\n\n{INFRASTRUCTURE_NOTE}\n\n"
             f"The model identity is carried twice — `MODEL_ID`/`MODEL_REVISION` in the module above and the `{n_files}`-file manifest below (paths, "
             "byte sizes, SHA-256) — and the cell first asserts they agree. It writes the manifest into the working-directory snapshot, then "
             f"`stage_missing_files(..., allow_download=True)` fetches exactly the entries that are absent from the Hugging Face Hub **at revision "
             f"`{ctx['MODEL_REVISION'][:12]}…`** (never `main`), `verify_snapshot` re-hashes every file and raises on the first size or digest mismatch, "
             f"and only then does `{load_expr}` load the verified files. There is no fallback to a different download and no remote model code is "
-            f"executed.{extra_note} The effective identity, device and weight source are printed before any inference."
+            f"executed.{extra_note} The effective identity, device and weight source are printed before any inference.\n\n"
+            "**Expected result:** the identity, the files fetched on a fresh runtime (an empty list when the snapshot is already staged), the "
+            "verified file counts, and the device the pipeline loaded on."
         )
     )
     ie = ctx["ident_expr"]
     model_code = (
+        "# @title Infrastructure: pin, stage and digest-verify the snapshots, then load the pipeline\n"
         "import json\n\n"
         f"MANIFEST = {manifest_literal}\n\n"
         f"if (MANIFEST['modelId'], MANIFEST['revision']) != ({ie['MODEL_ID']}, {ie['MODEL_REVISION']}):\n"
@@ -503,12 +532,14 @@ def render(repo: Path, template: dict[str, Any], revision: str | None = None) ->
         f"pipe = {load_expr}\n"
         "print({'device': getattr(pipe, 'device', None), 'source': getattr(pipe, 'source', 'local-snapshot')})"
     )
-    add(_code(model_code))
+    add(_code(model_code, _infra()))
 
     for stage in template["cells"]:
         add(_md(stage["md"].format(**fmt)))
         if stage.get("code"):
-            add(_code(stage["code"].format(**fmt)))
+            add(_code(stage["code"].format(**fmt), dict(stage.get("metadata", {}))))
+        if stage.get("after"):
+            add(_md(stage["after"].format(**fmt)))
     add(_md(template["closing"].format(**fmt)))
 
     return {
