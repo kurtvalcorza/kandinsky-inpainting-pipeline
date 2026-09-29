@@ -81,6 +81,14 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def prompt_seed(prompt: str) -> int:
+    """Seed for the prior's sampler: the first 4 bytes of SHA-256(prompt), masked to 31 bits.
+
+    Stable across processes, unlike ``hash(prompt)``, which Python salts per interpreter.
+    """
+    return int.from_bytes(hashlib.sha256(prompt.encode("utf-8")).digest()[:4], "big") & 0x7FFFFFFF
+
+
 def _read_manifest(dir_path: Path) -> dict[str, Any]:
     manifest_path = dir_path / MANIFEST_NAME
     if not manifest_path.is_file():
@@ -548,15 +556,22 @@ class KandinskyInpaintPipeline:
         return self._prior_pipeline
 
     def encode_prompts(self, prompts: Sequence[str]) -> dict[str, Any]:
-        """Encode prompts with the prior into CLIP image embeddings."""
+        """Encode prompts with the prior into CLIP image embeddings.
+
+        Each prompt's prior sampler is seeded with ``prompt_seed(prompt)``, so a prompt's embedding does not depend
+        on the other prompts encoded with it or on Python's per-process string-hash salt.
+        """
         distinct = sorted(set([NEGATIVE_PROMPT, *validate_prompts(prompts)]))
         missing = [p for p in distinct if p not in self._prompt_cache]
         if not missing:
             return {"n_cached": len(self._prompt_cache), "n_new": 0}
+        import torch
+
         prior = self._get_prior()
         prior.set_progress_bar_config(disable=True)
         for prompt in missing:
-            out = prior(prompt=prompt, num_inference_steps=25)
+            generator = torch.Generator(device=self.device).manual_seed(prompt_seed(prompt))
+            out = prior(prompt=prompt, num_inference_steps=25, generator=generator)
             self._prompt_cache[prompt] = {
                 "image_embeds": out.image_embeds[0].detach().to("cpu", self.dtype),
                 "negative_image_embeds": out.negative_image_embeds[0].detach().to("cpu", self.dtype),
