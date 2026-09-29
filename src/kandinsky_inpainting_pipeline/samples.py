@@ -10,7 +10,8 @@ Each record keeps the observation id and observer login so every image is tracea
 page. Captions are generated from the species names by one template, so the adaptation teaches the generator
 what these six names look like in this kind of photograph.
 
-A record is ``{id, image, caption}``: a PIL image (or a path to one) and the caption used to generate it.
+A record is ``{id, image, caption}`` plus an optional ``mask_image`` (255 = region to repaint): a PIL image (or a path
+to one), the caption that describes it, and the mask; a record without a mask gets the deterministic centre mask.
 """
 
 from __future__ import annotations
@@ -823,33 +824,70 @@ def split_dataset(
     return splits
 
 
+BYOD_COLUMNS = ("id", "file", "caption")
+BYOD_OPTIONAL_COLUMNS = ("mask",)
+
+
 def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
-    """Read `{id, image, caption}` records from a directory or a zip holding `captions.csv` (columns `id`, `file`,
-    `caption`) beside the image files; images are decoded, never extracted to disk."""
-    from PIL import Image
+    """Read inpainting records from a directory or a zip holding `captions.csv` beside the image files.
+
+    `captions.csv` has the columns `id`, `file` and `caption`, and an optional `mask` column naming a mask image
+    (same width and height as its image; white or 255 = region to repaint, black or 0 = region to keep). A row whose
+    `mask` is empty, or a table without the column, gets no `mask_image`, and `validate_dataset` then assigns the
+    deterministic centre mask (`create_center_mask`: the middle half of each side). Files are decoded in memory and
+    never extracted to disk. Every refusal names the row, the id and the file so it can be fixed in the table.
+    """
+    from PIL import Image, UnidentifiedImageError
 
     source = Path(path)
     if source.is_dir():
-        table = (source / "captions.csv").read_text(encoding="utf-8")
-        loader = lambda name: Image.open(source / name)  # noqa: E731
+        table = (source / "captions.csv").read_text(encoding="utf-8") if (source / "captions.csv").is_file() else None
+        names = {p.name for p in source.iterdir() if p.is_file()}
+        opener = lambda name: (source / name).read_bytes()  # noqa: E731
     elif source.is_file() and source.suffix.lower() == ".zip":
         archive = zipfile.ZipFile(source)
-        members = {Path(n).name: n for n in archive.namelist()}
-        if "captions.csv" not in members:
-            raise ValueError("BYOD zip must contain captions.csv")
-        table = archive.read(members["captions.csv"]).decode("utf-8")
-        loader = lambda name: Image.open(io.BytesIO(archive.read(members[name])))  # noqa: E731
+        members = {Path(n).name: n for n in archive.namelist() if not n.endswith("/")}
+        table = archive.read(members["captions.csv"]).decode("utf-8") if "captions.csv" in members else None
+        names = set(members)
+        opener = lambda name: archive.read(members[name])  # noqa: E731
     else:
         raise ValueError("BYOD datasets must be a directory or a .zip holding captions.csv and the image files")
+    if table is None:
+        raise ValueError("BYOD dataset must contain captions.csv with the columns id, file, caption (and optionally mask)")
     rows = list(csv.DictReader(io.StringIO(table)))
-    missing = {"id", "file", "caption"} - set(rows[0].keys() if rows else set())
+    missing = set(BYOD_COLUMNS) - set(rows[0].keys() if rows else set())
     if missing:
-        raise ValueError(f"captions.csv is missing columns {sorted(missing)}")
+        raise ValueError(f"captions.csv is missing columns {sorted(missing)}; required: {list(BYOD_COLUMNS)}, optional: mask")
+
+    def decode(name: str, *, row: int, rid: str, role: str, mode: str) -> Any:
+        if name not in names:
+            raise ValueError(f"captions.csv row {row} (id {rid!r}): {role} file {name!r} is not in the dataset")
+        try:
+            image = Image.open(io.BytesIO(opener(name)))
+            image.load()
+        except (UnidentifiedImageError, OSError) as exc:
+            message = f"captions.csv row {row} (id {rid!r}): {role} file {name!r} is not a readable image ({exc})"
+            raise ValueError(message) from exc
+        return image.convert(mode)
+
     out = []
-    for row in rows:
-        image = loader(row["file"])
-        image.load()
-        out.append({"id": row["id"], "image": image.convert("RGB"), "caption": row["caption"]})
+    for row_number, row in enumerate(rows, start=2):
+        rid = (row.get("id") or "").strip()
+        record: dict[str, Any] = {
+            "id": rid,
+            "image": decode((row.get("file") or "").strip(), row=row_number, rid=rid, role="image", mode="RGB"),
+            "caption": row.get("caption") or "",
+        }
+        mask_name = (row.get("mask") or "").strip()
+        if mask_name:
+            mask = decode(mask_name, row=row_number, rid=rid, role="mask", mode="L")
+            if mask.size != record["image"].size:
+                raise ValueError(
+                    f"captions.csv row {row_number} (id {rid!r}): mask {mask_name!r} is {mask.size[0]}x{mask.size[1]} px "
+                    f"but its image is {record['image'].size[0]}x{record['image'].size[1]} px; they must match"
+                )
+            record["mask_image"] = mask
+        out.append(record)
     return out
 
 
@@ -858,7 +896,9 @@ def write_dataset_csv(records: Sequence[Mapping[str, Any]], path: str | Path) ->
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["id", "file", "caption", "label", "observer", "inat_observation_url"])
+        writer = csv.DictWriter(
+            handle, fieldnames=["id", "file", "caption", "mask", "label", "observer", "inat_observation_url"]
+        )
         writer.writeheader()
         for record in records:
             writer.writerow(
@@ -866,6 +906,7 @@ def write_dataset_csv(records: Sequence[Mapping[str, Any]], path: str | Path) ->
                     "id": record["id"],
                     "file": f"{record['inat_photo_id']}.jpg" if record.get("inat_photo_id") else f"{record['id']}.jpg",
                     "caption": record["caption"],
+                    "mask": record.get("mask_file", ""),
                     "label": record.get("label", ""),
                     "observer": record.get("observer", ""),
                     "inat_observation_url": record.get("inat_observation_url", ""),
