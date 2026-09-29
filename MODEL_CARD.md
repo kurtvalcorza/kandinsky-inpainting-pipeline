@@ -25,7 +25,7 @@ date_published_source: "Hugging Face Hub commit `48ea15d787d96dd68682d436c23be99
 
 ## Interactive Colab Tutorials
 
-This pipeline provides a self-contained Google Colab notebook. It carries the repository's code in its own cells and runs end to end without cloning the repository:
+This pipeline provides a self-contained Google Colab notebook. It carries the repository's code in its own cells and runs end to end without cloning the repository. It installs nothing into the notebook kernel: every stage runs in an isolated environment built from a committed hash lock, so `Run all` needs no runtime restart:
 
 - **End-to-End Inpainting Fine-Tuning Notebook (guided)**:  
   [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/kandinsky-inpainting-pipeline/blob/main/tutorials/kandinsky_inpainting_colab.ipynb) [`kandinsky_inpainting_colab.ipynb`](https://github.com/kurtvalcorza/kandinsky-inpainting-pipeline/blob/main/tutorials/kandinsky_inpainting_colab.ipynb)  
@@ -120,7 +120,7 @@ Masks and captions are instruments too. The sample has no hand-drawn masks, so e
 
 **Operating environment.** Python 3.12 with the pinned packages `torch==2.14.0`, `diffusers==0.40.0`, `transformers==5.17.0`, `peft==0.21.0`, `accelerate==1.15.0`, `safetensors==0.8.0`, `huggingface-hub==1.32.0`, `numpy==2.5.3` and `pillow==11.3.0`. On CUDA the UNet, MoVQ and prior run in float16. The LoRA tensors stay in float32, and training uses float16 autocast with `torch.amp.GradScaler`.
 
-The tutorial targets a CUDA GPU with at least 15 GB of memory, such as a 16 GB T4, and about 20 GB of free disk for the 16.47 GB of pinned weights. No run on that hardware has been recorded yet. On CPU the code runs in float32 but is impractically slow for the tutorial.
+The tutorial notebook does not install these packages into its kernel: it builds a separate CPython 3.12.12 environment with a pinned `uv` from `tutorials/requirements-colab.lock.txt`, which locks those pins and all their dependencies to exact versions and SHA-256 digests for Linux x86_64 (the Linux `torch` 2.14.0 wheel is the CUDA 13.0 build), and runs each stage in its own process there. The tutorial targets a Linux x86_64 runtime with a CUDA GPU of at least 15 GB of memory, such as a 16 GB T4, and about 30 GB of free disk: the 16.47 GB of pinned weights and about 12 GB for the isolated environment. No run of the isolated-environment notebook on that hardware has been recorded yet. On CPU the code runs in float32 but is impractically slow for the tutorial.
 
 **Data environment.** Adaptation assumes that the photographs the adapter is trained on resemble the photographs the user later wants to edit. That means the same kind of subject, framing and photographic style, with masks of a similar shape and size. Captions at inference time should follow the pattern of the training captions. Masks or subjects far from the adaptation data move the output back towards the base model's behaviour. Held-out denoising loss is meaningful only when the validation photographs come from the same distribution as the training photographs.
 
@@ -202,7 +202,7 @@ Foreseeable misuse in a sensitive domain includes altering medical, forensic or 
 4. **Input integrity:** `validate_dataset` rejects datasets outside 4..2,000 records, duplicate ids, missing fields, photograph sides outside 256..4,096 px, captions outside 1..1,000 characters and masks whose size differs from their photograph, before any model runs. `load_byod_dataset` refuses a missing, unreadable or mis-sized file and names the table row, the id and the file.
 5. **Consistent conditioning:** `unet_keep_mask` converts the repository's repaint mask into the UNet's keep-mask channel, so `evaluate` and `adapt` present the UNet with the same channel convention as `generate`. An offline test asserts this layout.
 6. **Bounded, numerically stable adaptation:** `adapt` refuses more than 50 epochs, a learning rate above `1e-2` or a batch size above 8. It keeps the epoch with the lowest validation loss, so an adaptation that makes the model worse on held-out data is not exported. The LoRA tensors stay in float32 under float16 autocast with a gradient scaler, and gradients are clipped at norm 1.0.
-7. **Reproducibility:** the split, the training and evaluation noise, each inpainted image and each caption's prior run are seeded. Runtime packages are pinned exactly in `pyproject.toml` and in the notebook. The exported manifest records the base model identity and the adapter configuration.
+7. **Reproducibility:** the split, the training and evaluation noise, each inpainted image and each caption's prior run are seeded. Runtime packages are pinned exactly in `pyproject.toml`; the notebook installs them, with every transitive dependency, from a hash lock into an isolated environment and never into the hosted runtime's own interpreter. The exported manifest records the base model identity and the adapter configuration.
 
 The pipeline has no content filter or safety checker on captions or edited images, and it adds no watermark or provenance metadata to edited images.
 
@@ -262,7 +262,7 @@ The following uses are unacceptable even where the pipeline would work:
 
 ## Verification records
 
-`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The clean-runtime run of the tutorial notebook:
+`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The records below are of the **previous** notebook revision, which installed its pins into the kernel; the current notebook runs the same stages in an isolated hash-locked environment and has not yet been run on hardware. The clean-runtime run of the previous tutorial notebook:
 
 - **Date:** 2026-09-29
 - **Subject:** `tutorials/kandinsky_inpainting_colab.ipynb` at commit `6fd3ab4`, blob `c8930286cd79` (full identifiers in `docs/release-verification.md`)
