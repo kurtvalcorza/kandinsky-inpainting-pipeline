@@ -29,8 +29,15 @@ PIPELINE_CLASS = "KandinskyInpaintPipeline"
 MODEL_LOAD_EXPR = (
     f"{PIPELINE_CLASS}.from_pretrained(weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), use_lora=True)"
 )
-# Pinned snapshots (shared prior, CLIP scorer)
-KNOWN_SHAS: frozenset[str] = frozenset({"9fc51ad5732afc5d031724219d22e6c42179c5a8", "1a25a446712ba5ee05982a381eed697ef9b435cf"})
+# Pinned snapshots (shared prior, CLIP scorer) and the upstream decoder commit that first published the packaged
+# safetensors files (the model card's date_published source)
+KNOWN_SHAS: frozenset[str] = frozenset(
+    {
+        "9fc51ad5732afc5d031724219d22e6c42179c5a8",
+        "1a25a446712ba5ee05982a381eed697ef9b435cf",
+        "48ea15d787d96dd68682d436c23be99b34b18aca",
+    }
+)
 BYOD_GATES = ("USE_BYOD",)
 EXPECTED_OUTPUTS = (
     "outputs/kandinsky_inpainting_sample_captions.csv",

@@ -24,3 +24,16 @@ jobs:
         run: ruff check src tests tools
       - name: Unit tests
         run: pytest
+      - name: Validate tutorial and model-card source
+        run: python tools/validate_release_assets.py
+      - name: Standalone notebook parity (NOTEBOOK_SPEC 2.2 PAR3)
+        run: python tools/build_notebook.py --check
+
+  release-evidence-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Explain evidence boundary
+        run: |
+          echo "Static/unit CI is not clean-runtime notebook execution evidence."
+          echo "See docs/release-verification.md before promoting the tutorial to release-grade."
