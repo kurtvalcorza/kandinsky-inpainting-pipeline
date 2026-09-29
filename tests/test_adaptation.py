@@ -101,6 +101,30 @@ def test_stub_matches_the_contract_shape():
     assert len(names) == 8 and all(".lora_" in n for n in names) and LORA_TENSORS == 176
 
 
+def test_unet_input_carries_the_keep_mask_channel(monkeypatch):
+    """evaluate()/adapt() feed the UNet [noisy, masked latents, keep mask] with keep = 1 - inpaint mask, the
+    convention of diffusers v0.40.0 KandinskyV22InpaintPipeline (L238 `mask = 1 - mask`, L452, L479)."""
+    pipe = _pipeline(monkeypatch)
+    records = synthetic_records(1)
+    latents, masked_latents, inpaint_mask = pipe._conditioning(records)
+    seen = {}
+    original = pipe.unet.forward
+
+    def spy(sample, timestep, encoder_hidden_states, added_cond_kwargs, return_dict):
+        seen["sample"] = sample.detach().clone()
+        return original(sample, timestep, encoder_hidden_states, added_cond_kwargs, return_dict)
+
+    monkeypatch.setattr(pipe.unet, "forward", spy)
+    embeds = torch.stack([pipe._embeds(records[0]["caption"])[0]])
+    pipe._predict_noise(latents, torch.tensor([500]), embeds, masked_latents, inpaint_mask)
+    sample = seen["sample"]
+    assert sample.shape[1] == 2 * pl.LATENT_CHANNELS + 1
+    keep = sample[:, 2 * pl.LATENT_CHANNELS :]
+    torch.testing.assert_close(keep, 1.0 - inpaint_mask)
+    assert inpaint_mask.sum() > 0 and (keep * inpaint_mask).sum() == 0
+    torch.testing.assert_close(sample[:, pl.LATENT_CHANNELS : 2 * pl.LATENT_CHANNELS], masked_latents)
+
+
 def test_evaluate_is_paired_and_seeded(monkeypatch):
     pipe = _pipeline(monkeypatch)
     records = synthetic_records(4)

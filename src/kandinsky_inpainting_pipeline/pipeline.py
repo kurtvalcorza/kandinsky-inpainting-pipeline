@@ -231,6 +231,19 @@ def create_center_mask(image_or_size: Any) -> Any:
     return mask
 
 
+def unet_keep_mask(inpaint_mask: Any) -> Any:
+    """Convert an inpaint mask (1 = region to repaint, the repository convention) into the Kandinsky 2.2 inpainting
+    UNet's mask channel (1 = region to keep).
+
+    The repository convention (255 / 1 = repaint) is what records, ``create_center_mask`` and ``generate`` accept.
+    The UNet expects the opposite convention: diffusers v0.40.0
+    ``pipelines/kandinsky2_2/pipeline_kandinsky2_2_inpainting.py`` inverts the user mask (``mask = 1 - mask``,
+    L238), multiplies the image latents by it (L452) and concatenates it as the last UNet input channel (L479).
+    Works on NumPy arrays and torch tensors alike.
+    """
+    return 1.0 - inpaint_mask
+
+
 def _check_record(record: Any, index: int) -> dict[str, Any]:
     label = f"records[{index}]"
     if not isinstance(record, Mapping):
@@ -659,7 +672,12 @@ class KandinskyInpaintPipeline:
         }
 
     def _conditioning(self, records: Sequence[Mapping[str, Any]]) -> tuple[Any, Any, Any]:
-        """Encode images and masks into the nine-channel inpainting UNet conditioning tensors."""
+        """Encode images and masks into latents, masked latents and the latent-resolution inpaint mask.
+
+        Returns ``(latents, masked_latents, inpaint_mask_latents)``: ``masked_latents`` keeps the latents outside the
+        repaint region (zero inside it), and ``inpaint_mask_latents`` is 1 inside the repaint region (repository
+        convention). ``_predict_noise`` converts it to the UNet's keep-mask channel with ``unet_keep_mask``.
+        """
         import torch
         import torch.nn.functional as F
 
@@ -689,11 +707,14 @@ class KandinskyInpaintPipeline:
         timesteps: Any,
         image_embeds: Any,
         masked_latents: Any,
-        mask_latents: Any,
+        inpaint_mask_latents: Any,
     ) -> Any:
+        """Predict noise from the nine-channel input ``[noisy latents, masked latents, keep mask]``: the channel order
+        and keep-mask convention of diffusers v0.40.0 ``KandinskyV22InpaintPipeline`` (L452, L479)."""
         import torch
 
-        model_input = torch.cat([noisy, masked_latents, mask_latents], dim=1)
+        keep = unet_keep_mask(inpaint_mask_latents).to(noisy.dtype)
+        model_input = torch.cat([noisy, masked_latents.to(noisy.dtype), keep], dim=1)
         output = self.unet(
             sample=model_input,
             timestep=timesteps,
