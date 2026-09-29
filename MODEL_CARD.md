@@ -262,7 +262,14 @@ The following uses are unacceptable even where the pipeline would work:
 
 ## Verification records
 
-The tutorial notebook has no clean-runtime execution recorded yet, so its status is `Candidate`. `docs/release-verification.md` holds the procedure, the record table and one CPU pre-flight of the notebook's stage cells against stub models. That pre-flight is not an execution of the model and is not release evidence. The offline unit tests and `tools/validate_release_assets.py` are static and unit checks, not executions of the notebook. The tutorial follows DIMER Notebook Specification 2.2 as a standalone notebook.
+`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The clean-runtime run of the tutorial notebook:
+
+- **Date:** 2026-09-29
+- **Subject:** `tutorials/kandinsky_inpainting_colab.ipynb` at commit `6fd3ab4`, blob `c8930286cd79` (full identifiers in `docs/release-verification.md`)
+- **Runtime:** Kaggle batch kernel on a Tesla T4 (15,360 MiB), Python 3.12.13, `torch 2.14.0+cu130`, `diffusers 0.40.0`, `transformers 5.17.0`, `peft 0.21.0`
+- **Procedure:** the notebook was fetched at that commit and run with `Run all` in a fresh interpreter, with an empty Hugging Face cache and no repository checkout. Form fields were at their defaults (`USE_BYOD = False`). The install cell's restart guard fired once because the kernel had preloaded older `numpy` and `protobuf`, and the kernel was restarted and run again from the top.
+- **Observed result:** 12 of 12 code cells ran without error in 906.0 s. Held-out test `denoising_mse` was 0.028245 for the frozen model and 0.027997 after adaptation. Kept-region PSNR rose from 25.30 to 25.59 dB and SSIM from 0.9379 to 0.9420. The reloaded adapter gave the same denoising loss (`denoising_mse_diff` 0.0) and a `mean_abs_pixel_diff` of 0.068 on the 0–255 scale, inside the asserted tolerance of 1.0.
+- **Caveats:** one run on one seeded split. This is sample-sanity evidence, not a benchmark. The BYOD branch was not exercised, so the status remains `Candidate`.
 
 ## References
 

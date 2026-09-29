@@ -62,8 +62,8 @@ and the runtime pins. Regenerate it with `python tools/build_notebook.py`; never
 ## Release status
 
 **Candidate.** The tutorial notebook, model card and release documents are published, and CI runs `ruff`, the
-offline unit suite, `tools/validate_release_assets.py` and `tools/build_notebook.py --check`. No clean-runtime GPU
-execution of the notebook has been recorded yet; `STATUS.md` and `docs/release-verification.md` hold the status and
+offline unit suite, `tools/validate_release_assets.py` and `tools/build_notebook.py --check`. A clean-runtime `Run all` of the
+notebook passed on a Kaggle T4 at `6fd3ab4` on 2026-09-29; BYOD evidence (REL12) is still pending, and `STATUS.md` and `docs/release-verification.md` hold the status and
 the promotion procedure.
 
 ## License

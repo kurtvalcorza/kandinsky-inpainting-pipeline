@@ -80,13 +80,14 @@ Before changing the registry status from `Candidate` to `Release-grade`:
 
 ## Recorded executions
 
-No clean-runtime execution of the notebook has been recorded. The table below holds pre-flight runs, which are not
-promotion evidence.
+The first row is the clean-runtime execution of the default path. The CPU row below it is a pre-flight run, which is
+not promotion evidence.
 
 | Date (UTC) | Subject | Runtime | Procedure | Observed result | Caveats |
 |---|---|---|---|---|---|
+| 2026-09-29 | `tutorials/kandinsky_inpainting_colab.ipynb` at commit `6fd3ab42084891c95ccfd6373e35343dc004c6d7`, blob `c8930286cd797f972dd49542d24d7ee9722066ca` | Kaggle batch kernel, Tesla T4 (15,360 MiB), Python 3.12.13, `torch 2.14.0+cu130`, `diffusers 0.40.0`, `transformers 5.17.0`, `peft 0.21.0` | Notebook fetched at the commit and blob-verified, then `Run all` in a fresh interpreter with `nbclient`, an empty Hugging Face cache and no repository checkout; form fields at their defaults (`USE_BYOD = False`). The install cell's restart guard fired once because the kernel had preloaded older `numpy`, `protobuf` and `cuda-bindings`; the kernel was restarted and run again from the top | **PASS** in 906.0 s: 12/12 code cells, 0 errors. Held-out test `denoising_mse` 0.028245 (frozen) → 0.027997 (adapted). Kept-region PSNR 25.30 → 25.59 dB and SSIM 0.9379 → 0.9420. `clip_prompt_similarity` 31.078 → 30.298, against 24.026 for the mean-fill floor and 30.274 for the original photographs. Reload parity: `denoising_mse_diff` 0.0 and `mean_abs_pixel_diff` 0.068 on the 0–255 scale, inside the asserted tolerance of 1.0. Adapter `adapter.safetensors` 6,607,664 bytes, SHA-256 `a2c8a575…` | One run on one seeded split; sample-sanity evidence, not a benchmark. The BYOD branch was not exercised. The non-zero pixel difference on reload, with an identical denoising loss, is attributed to non-deterministic GPU kernels during sampling; that attribution is inferred, not isolated |
 | 2026-09-29 | Stage cells (Sections 4–10) of `tutorials/kandinsky_inpainting_colab.ipynb` generated at commit `28940a7` | CPU only, CPython 3.12.12, `torch 2.14.0+cpu`; no `diffusers` sampling, no pinned weights | The carried module cells were executed, then every learner-facing stage cell in order, once on the sample path and once on the BYOD path with `BYOD_PATH` set (8 photographs, 4 with their own masks). The UNet and MoVQ were the stub models from `tests/test_adaptation.py`; the prior, the CLIP scorer, the corpus fetch and `generate` were fakes | All stage cells completed on both paths; both Section 8 assertions and the Section 9 parity assertion passed; the Section 6 frozen-model guard refused an already-adapted pipeline; all six expected `outputs/` paths were written; BYOD reported 4 own masks and 4 centre-mask fallbacks | Exercises the notebook's code paths and exports only; says nothing about the model, its numbers, GPU memory or run time; the install and model-loading cells were not run |
 
 ## Current status
 
-**Candidate.** Promotion to **Release-grade** requires a clean-runtime record produced by the procedure above.
+**Candidate.** A clean-runtime `Run all` of the default path at `6fd3ab4` passed on a Kaggle T4 on 2026-09-29 (recorded above). Promotion to **Release-grade** still needs the BYOD positive and negative checks (REL12), run through the `BYOD_PATH` field.
