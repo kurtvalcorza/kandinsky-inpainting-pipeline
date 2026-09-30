@@ -1,17 +1,20 @@
-"""Per-repository template for tools/build_notebook.py (NOTEBOOK_SPEC 2.2 §4 standalone carrier, §3.5 guided layer).
+"""Per-repository template for tools/build_notebook.py /3 (NOTEBOOK_SPEC 2.2 §4 standalone, §25.13 isolated environment).
 
-Only the task-specific prose and stage cells live here. Runtime install, the embedded pipeline
-modules (metrics.py, pipeline.py, samples.py), and the model pin/stage/verify cells are produced
-by the generator from repository sources so they cannot drift from the package.
+The generator writes the infrastructure cells (runtime check, carrier, isolated install + stage runner, snapshot
+staging) from repository files; this template holds the learner-facing prose, the list of carried files and the
+learner cells. Every learner cell calls ``run_stage(...)``: the carried ``tutorial_stages.py`` (``tools/`` in the
+repository) runs one stage per process in an isolated, hash-locked environment, so nothing is installed into the
+notebook kernel.
 
 This template configures an E2E, GUIDED inpainting fine-tuning workflow: the pinned Kandinsky 2.2 inpainting
 decoder, its shared diffusion prior and a CLIP scorer are staged and digest-verified; 60 pinned CC0 iNaturalist bird
 photographs are fetched, given the deterministic centre mask, validated and split; every prompt is encoded once with
 the prior and the prior is released; the frozen model is measured (held-out denoising loss, preservation of the kept
 region, CLIP prompt similarity between a mean-colour-fill floor and the original-photograph ceiling); a bounded LoRA
-fine-tuning runs in the kernel; the same measurements are repeated on identical inputs; a new prompt is inpainted into
-held-out photographs; the adapter is exported and reloaded; and one optional Predict -> Change one thing -> Run ->
-Observe -> Explain activity changes the mask size.
+fine-tuning runs and the adapter is exported; the exported adapter is measured in a fresh process on identical
+inputs; a second fresh process reloads it, checks parity with the trained in-memory model and inpaints a new caption
+into held-out photographs; and one optional Predict -> Change one thing -> Run -> Observe -> Explain activity changes
+the mask size.
 """
 # ruff: noqa: E501  -- markdown prose and code-cell text are kept on single lines for readable rendering
 
@@ -46,12 +49,14 @@ ORIENTATION = [
         "## How to use this notebook\n\n"
         "**Who this notebook is for.** Learners who can open a hosted notebook, run cells in order and read short Python, "
         "and who want to see how a diffusion inpainting model is measured and adapted. No prior diffusion-model experience is "
-        "assumed: each term is explained where it is first used, and the glossary below collects them. A **GPU** runtime is "
-        "required (Colab: Runtime → Change runtime type → T4 GPU).\n\n"
+        "assumed: each term is explained where it is first used, and the glossary below collects them. A Linux **GPU** runtime "
+        "is required (Colab: Runtime → Change runtime type → T4 GPU), with about 30 GB of free disk.\n\n"
         "- **Run all** from a fresh GPU runtime (Runtime → Run all). Every cell runs in order without editing; nothing asks for "
-        "input on the default path, and no manual restart is needed.\n"
-        "- **Infrastructure** cells (Sections 1–3) are collapsed and titled *Infrastructure*. They install pinned packages, "
-        "carry the repository's code and verify the model files. You may run them without studying their implementation.\n"
+        "input on the default path, and no runtime restart is needed. Sections 1–3 build an isolated environment from "
+        "hash-locked packages and download about 16.5 GB of verified weights, so they take the longest before any model runs.\n"
+        "- **Infrastructure** cells (Sections 1–3) are collapsed and titled *Infrastructure*. They check the runtime, carry the "
+        "repository's code, build the isolated environment and verify the model files. You may run them without studying "
+        "their implementation.\n"
         "- **Form fields** (`# @param`) such as `USE_BYOD`, `STEPS` or `EPOCHS` can be changed in the form view. The defaults "
         "are the canonical path; change them only after one complete run.\n"
         "- Each section is tagged by kind: **[Concept]** explains an idea, **[Evaluation practice]** concerns fair "
@@ -59,10 +64,16 @@ ORIENTATION = [
         "- Before each principal result you are asked to **predict**. Write your prediction down first. After the result, a "
         "**What to notice** note describes normal output, and a **Check your reasoning** box holds a sample answer: open it "
         "only after you have answered.\n\n"
-        "**Roadmap.** 1–3 set up and verify the model (Infrastructure) → 4 photographs, masks, validation and splits → "
-        "5 prompt encoding → 6 the frozen baseline → 7 LoRA fine-tuning → 8 the paired held-out comparison → 9 a new prompt, "
-        "export and fresh reload → 10 change one thing: the mask size → interpretation, conclusion and troubleshooting. "
-        "Optional: re-run from Section 4 with your own photographs and masks (Bring Your Own Data).\n\n"
+        "**Where the code runs.** The notebook kernel installs nothing and imports no model library. Each learner cell calls "
+        "`run_stage('…')`, which runs one stage of the carried stage runner in its own process with the isolated environment's "
+        "Python, streams what it prints, and stops the notebook with the stage's own error message if it fails. Stages hand "
+        "results to each other only through files in the run directory — the verified snapshots, the caption embeddings, the "
+        "adapter artifact and JSON records — and GPU memory is released when each stage ends.\n\n"
+        "**Roadmap.** 1–3 check the runtime, carry the code, build the isolated environment and verify the model "
+        "(Infrastructure) → 4 photographs, masks, validation and splits → 5 prompt encoding → 6 the frozen baseline → "
+        "7 LoRA fine-tuning and export → 8 the paired held-out comparison → 9 fresh reload and a new caption → 10 change one "
+        "thing: the mask size → interpretation, conclusion and troubleshooting. Optional: re-run from Section 4 with your own "
+        "photographs and masks (Bring Your Own Data).\n\n"
         "**Input → Model/System → Output.** A photograph, a mask marking the region to repaint (white = repaint, black = keep) "
         "and a caption → prior (caption → CLIP image embedding) → inpainting UNet (denoises a latent, conditioned on the "
         "embedding, the kept latents and the keep mask) → MoVQ decoder → a 512 × 512 photograph whose masked region is "
@@ -85,7 +96,9 @@ ORIENTATION = [
         "| **CLIP prompt similarity** | A frozen CLIP model's similarity score between an image and its caption: an automated proxy, not a human judgement. |\n"
         "| **LoRA** | Low-rank adapter matrices added to the UNet's attention projections; only they are trained, the base model stays frozen. |\n"
         "| **Held-out** | Photographs never used for training or for choosing the kept epoch (the test split). |\n"
-        "| **Paired comparison** | Measuring the frozen and the adapted model on identical inputs, noise and seeds, so the difference is the adaptation. |\n\n"
+        "| **Paired comparison** | Measuring the frozen and the adapted model on identical inputs, noise and seeds, so the difference is the adaptation. |\n"
+        "| **Hash-locked environment** | A separate Python environment built from a requirements file that pins every package to one version and one set of SHA-256 digests; the installer refuses anything else. |\n"
+        "| **Stage** | One step of the workflow run as its own process by `run_stage`; it reads the files earlier stages wrote and writes its own. |\n\n"
         "</details>"
     ),
 ]
@@ -100,65 +113,63 @@ TEMPLATE = {
     "profile": "E2E",
     "mode": "GUIDED",
     "run_all": (
-        "Selecting **Run all** in a fresh **GPU** runtime (a 16 GB T4 is enough; see the Prerequisites) installs the pinned "
-        "dependencies, stages and digest-verifies three pinned snapshots from the Hub — the 5.28 GB Kandinsky 2.2 inpainting "
-        "decoder (UNet + MoVQ), the 10.57 GB Kandinsky 2.2 diffusion prior and a 0.61 GB CLIP scorer — loads the UNet in float16 "
-        "with an untrained LoRA adapter attached, fetches 60 CC0 iNaturalist bird photographs as digest-verified JPEGs (about "
-        "6 MB, no credential), gives each the deterministic centre mask, validates them and splits them 36 / 12 / 12 by seed, "
-        "encodes every prompt with the prior and releases the prior, measures the frozen model (held-out denoising loss, "
-        "preservation of the kept region, and CLIP prompt similarity between a mean-colour-fill floor and the original-photograph "
-        "ceiling), runs a bounded LoRA fine-tuning (4 epochs over 36 photographs), repeats the measurements on identical inputs, "
-        "inpaints a new prompt into held-out photographs, exports the adapter as safetensors with a manifest, reloads it into a "
-        "fresh pipeline to verify parity, and finally runs one small optional activity that changes the mask size. The default "
-        "path needs no repository clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit "
-        "(NOTEBOOK_SPEC 2.2 §5). No clean-runtime timing has been recorded yet; the downloads alone are about 16.5 GB."
+        "Selecting **Run all** in a fresh Linux **GPU** runtime (a 16 GB T4 is enough; see the Prerequisites) builds an isolated "
+        "Python environment from the carried hash-locked requirements (torch, diffusers, transformers, peft, accelerate, "
+        "sentencepiece, safetensors, huggingface-hub, numpy, pillow and their dependencies) without touching the notebook kernel's "
+        "own packages, then runs each stage below in its own process: it stages and digest-verifies three pinned snapshots from "
+        "the Hub — the 5.28 GB Kandinsky 2.2 inpainting decoder (UNet + MoVQ), the 10.57 GB Kandinsky 2.2 diffusion prior and a "
+        "0.61 GB CLIP scorer — fetches 60 CC0 iNaturalist bird photographs as digest-verified JPEGs (about 6 MB, no credential), "
+        "gives each the deterministic centre mask, validates them and splits them 36 / 12 / 12 by seed, encodes every prompt "
+        "with the prior and releases the prior, measures the frozen model (held-out denoising loss, preservation of the kept "
+        "region, and CLIP prompt similarity between a mean-colour-fill floor and the original-photograph ceiling), runs a "
+        "bounded LoRA fine-tuning (4 epochs over 36 photographs) and exports the adapter as safetensors with a manifest, "
+        "measures the exported adapter in a fresh process on identical inputs, reloads it in a second fresh process to verify "
+        "parity with the trained in-memory model before inpainting a new caption into held-out photographs, and finally runs "
+        "one small optional activity that changes the mask size. The default path needs no repository clone, no DIMER worker "
+        "or service, no credential, no upload dialog, no configuration edit and no runtime restart (NOTEBOOK_SPEC 2.2 §5). No "
+        "clean-runtime timing of this version has been recorded yet; the downloads alone are about 16.5 GB."
     ),
     "byod": (
-        "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4, then select the Section 3 cell and choose "
-        "Runtime → Run cell and below: Section 3 builds a fresh, unadapted pipeline (the snapshots are already staged), so the "
-        "baseline you measure is the frozen model again. Supply your own photographs, masks and captions as a zip holding `captions.csv` beside the files. The table needs the columns `id`, "
-        "`file` and `caption`, and may carry a `mask` column naming a mask image of the same size (white = repaint, black = keep); "
-        "a row without a mask gets the deterministic centre mask, and the cell reports how many records used it. Photographs "
-        "must have a shorter side of at least 256 px and a longer side of at most 4096 px; you need at least four photographs, "
-        "and at least one caption with three or more photographs so that a held-out record exists. Set `BYOD_PATH` to a zip "
-        "or directory already in the runtime to skip the upload dialog. Your records are split by caption into training, "
-        "validation and test sets and flow through the same contract — validation, prompt encoding, frozen baseline, adaptation, "
-        "held-out evaluation, inference, artifact export and reload parity. Uploaded files stay inside this runtime. BYOD is "
-        "optional and never part of the default path."
+        "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4 and re-run from that cell: every stage is a "
+        "fresh process that rebuilds an unadapted pipeline from the verified snapshots (already staged), so the baseline you "
+        "measure is the frozen model again. Supply your own photographs, masks and captions as a zip holding `captions.csv` "
+        "beside the files. The table needs the columns `id`, `file` and `caption`, and may carry a `mask` column naming a mask "
+        "image of the same size (white = repaint, black = keep); a row without a mask gets the deterministic centre mask, and "
+        "the cell reports how many records used it. Photographs must have a shorter side of at least 256 px and a longer side "
+        "of at most 4096 px; you need at least four photographs, and at least one caption with three or more photographs so "
+        "that a held-out record exists. Set `BYOD_PATH` to a zip or directory already in the runtime to skip the upload dialog. "
+        "Your records are split by caption into training, validation and test sets and flow through the same contract — "
+        "validation, prompt encoding, frozen baseline, adaptation, held-out evaluation, inference, artifact export and reload "
+        "parity. An invalid zip stops Section 4 with a `RuntimeError` that repeats the validator's message. Uploaded files "
+        "stay inside this runtime. BYOD is optional and never part of the default path."
     ),
-    "pipeline_class": "KandinskyInpaintPipeline",
-    "model_load": "KandinskyInpaintPipeline.from_pretrained(weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), use_lora=True)",
     "weights_key": "kandinsky-2-2-decoder-inpaint",
-    "modules": ["pipeline.py", "samples.py", "metrics.py"],
-    "entry_module": "pipeline.py",
-    "rewrites": [
-        [
-            r"^_WEIGHTS_ROOT = Path\(__file__\)[^\n]*$",
-            '_WEIGHTS_ROOT = Path.cwd() / "weights"  # standalone rewrite (build_notebook.py): working-directory-relative',
-        ]
-    ],
-    "extra_weights": [
-        {
-            "key": "kandinsky-2-2-prior",
-            "var": "PRIOR_MANIFEST",
-            "dir": "DEFAULT_PRIOR_DIR",
-            "identity": ["PRIOR_ID", "PRIOR_REVISION"],
-            "stage": "stage_missing_prior_files",
-            "verify": "verify_prior_snapshot",
-        },
-        {
-            "key": "clip-vit-b-32-laion2b",
-            "var": "SCORER_MANIFEST",
-            "dir": "DEFAULT_SCORER_DIR",
-            "identity": ["SCORER_ID", "SCORER_REVISION"],
-            "stage": "stage_missing_scorer_files",
-            "verify": "verify_scorer_snapshot",
-        },
-    ],
-    "runtime_imports": ["torch", "diffusers", "transformers", "peft"],
+    # Carried byte for byte (UTF-8 text, LF newlines) into the run directory and verified against CARRIED_HASHES.
+    "carried": {
+        "src/kandinsky_inpainting_pipeline/__init__.py": "src/kandinsky_inpainting_pipeline/__init__.py",
+        "src/kandinsky_inpainting_pipeline/pipeline.py": "src/kandinsky_inpainting_pipeline/pipeline.py",
+        "src/kandinsky_inpainting_pipeline/samples.py": "src/kandinsky_inpainting_pipeline/samples.py",
+        "src/kandinsky_inpainting_pipeline/metrics.py": "src/kandinsky_inpainting_pipeline/metrics.py",
+        "tutorial_stages.py": "tools/tutorial_stages.py",
+        "requirements.txt": "tutorials/requirements-colab.lock.txt",
+        "weights/kandinsky-2-2-decoder-inpaint/dimer-base-manifest.json": "weights/kandinsky-2-2-decoder-inpaint/dimer-base-manifest.json",
+        "weights/kandinsky-2-2-prior/dimer-base-manifest.json": "weights/kandinsky-2-2-prior/dimer-base-manifest.json",
+        "weights/clip-vit-b-32-laion2b/dimer-base-manifest.json": "weights/clip-vit-b-32-laion2b/dimer-base-manifest.json",
+        "LICENSE": "LICENSE",
+    },
+    "stage_runner": "tutorial_stages.py",
+    "lock": "requirements.txt",
+    "managed_python": "3.12.12",
+    "uv": {
+        "version": "0.12.15",
+        "url": "https://files.pythonhosted.org/packages/1e/fd/432451d732917c49152a291de3ef171aa6b0f1a22d39780fb2c1f085ca4c/uv-0.12.15-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+        "bytes": 20081404,
+        "sha256": "aee9802f46bae436bd91751bb33ddeb379ef1596b5c19df193219d545d244b60",
+    },
+    "disk_gib": {"weights": 17.5, "environment": 12},
+    "runtime_modules": ["torch", "diffusers", "transformers", "peft"],
     "title": "Kandinsky 2.2 Inpainting — DIMER guided end-to-end notebook (standalone)",
     "badges": BADGES,
-    "orientation": ORIENTATION,
     "capability": "masked image inpainting with a 1.25 B-parameter UNet diffusion model, held-out denoising-loss, preservation and CLIP-scored evaluation, and bounded LoRA fine-tuning to a set of captioned photographs",
     "intro": (
         "Kandinsky 2.2 is a two-stage latent diffusion model from ai-forever (Razzhigaev et al., 2023). A diffusion prior with "
@@ -191,90 +202,144 @@ TEMPLATE = {
         "and any claim that a CLIP score, a preservation score or a denoising loss measures image quality."
     ),
     "prerequisites": [
-        "- **Runtime:** a fresh supported **GPU** runtime (Google Colab T4 or better, or a Jupyter kernel with a CUDA GPU of at least 15 GB and Python 3.12). The prior runs in float16 while it encodes captions and is then released; the UNet and MoVQ run in float16; the LoRA tensors are kept in float32 and training uses float16 autocast with loss scaling. CPU-only runtimes are not supported for this notebook. About 20 GB of free disk is needed for the snapshots.",
+        "- **Runtime:** a fresh supported **Linux x86_64 GPU** runtime (Google Colab T4 or better, Kaggle T4, or a Linux Jupyter kernel with a CUDA GPU of at least 15 GB). The kernel's own Python version does not matter: the notebook installs nothing into it, and runs every stage with CPython 3.12.12 in an isolated environment built from {n_locked} hash-locked packages (torch 2.14.0, whose Linux wheel is the CUDA 13.0 build). The prior runs in float16 while it encodes captions and is then released; the UNet and MoVQ run in float16; the LoRA tensors are kept in float32 and training uses float16 autocast with loss scaling. CPU-only runtimes are not supported for this notebook. About 18 GB of disk is needed for the snapshots and about 12 GB for the isolated environment.",
         "- **Knowledge:** basic Python and notebooks. Helpful but not required: what a diffusion model does at inference, what classifier-free guidance is, and why a training loss is not a quality score. The glossary above covers the terms.",
         "- **Weights:** the decoder, the diffusion prior and the CLIP scorer are all safetensors; nothing is unpickled and no Hub-hosted code is executed — the model classes come from `diffusers`, `transformers` and `peft` on PyPI. The Kandinsky weights are released under Apache-2.0; the scorer is MIT.",
         "- **Data contract:** a record is `{{id, image, caption}}` plus an optional `mask_image` — an RGB photograph with shorter side at least 256 px and longer side at most 4096 px, a caption of 1..1000 characters, and a greyscale mask of the same size (255 = repaint). A record without a mask gets the deterministic centre mask (the middle half of each side). Photograph and mask are resized together so the shorter side is 512 px and centre-cropped to 512 × 512. Validation is structural: nothing checks that a caption describes its photograph or that a mask covers anything sensible.",
         "- **Privacy:** Do not upload confidential or restricted data to a hosted runtime unless you are authorized to process it there — photographs of identifiable people, licensed stock images or client material are exactly that. The default path uploads nothing, and uploaded BYOD files are processed only inside this runtime.",
         "- **External access (data):** besides the Hub, the default path fetches 60 pinned photographs (about 6 MB) from the public iNaturalist open-data bucket `inaturalist-open-data.s3.amazonaws.com` over HTTPS, digest-verified before decoding; every photo is CC0 and its observation page is recorded.",
     ],
+    "guided": {"opening": ORIENTATION},
+    "setup": [
+        {
+            "cell": "check",
+            "md": (
+                "## 1. Check the runtime · [Engineering]\n\n"
+                "> **Infrastructure.** The code cells in Sections 1–3 are collapsed. You may run them without studying their "
+                "implementation; they exist for reproducibility and provenance. The learning activities start in Section 4.\n\n"
+                "**Input:** a fresh hosted runtime. **System:** checks that it is Linux x86_64 with a CUDA GPU and enough free "
+                "disk, and creates a new run directory. **Output:** the GPU name and the directories this run will use. Each run "
+                "writes to a new directory under `outputs/{stem}/`, so an earlier export cannot be mistaken for a current result. "
+                "The verified snapshots are kept in `weights/` and reused by a later run."
+            ),
+            "after": (
+                "**Expected result:** one dictionary naming the GPU (for example `Tesla T4, 15360 MiB`), the kernel's Python "
+                "version, the run directory, the weights directory, the isolated environment's directory and the free disk. "
+                "If the cell stops with a GPU or disk message, see **Troubleshooting**."
+            ),
+        },
+        {
+            "cell": "carrier",
+            "md": (
+                "## 2. Carry the code and install the locked runtime · [Engineering]\n\n"
+                "> **Infrastructure.** The next two code cells are collapsed. The first **is** the repository's code, carried so "
+                "that this notebook works on its own; the second builds the environment every stage runs in.\n\n"
+                "The first cell holds, as text, the files the workflow needs: the package's four modules under "
+                "`src/kandinsky_inpainting_pipeline/` (identity constants, snapshot verification and staging, validation and masks, "
+                "the pipeline class, the sample corpus and the preservation and CLIP metrics), the stage runner "
+                "`tutorial_stages.py`, the hash-locked `requirements.txt` ({n_locked} packages), the three snapshot manifests and "
+                "the licence. It writes each file into the run directory and checks its SHA-256 against `CARRIED_HASHES`, stopping "
+                "on any mismatch. The text is the repository's files byte for byte; the repository's parity test "
+                "(`tests/test_notebook_parity.py`) fails whenever the two diverge, so what runs here is what the repository tests. "
+                "Nothing in this cell runs a model."
+            ),
+            "after": (
+                "**Expected result:** `carried_files`, `verified: True`, and the repository revision the notebook was generated "
+                "from.\n\n"
+                "The next cell installs nothing into this notebook's kernel. It downloads one pinned file — the `uv` installer "
+                "wheel, refused unless its size and SHA-256 match — creates a separate virtual environment with its own CPython "
+                "3.12.12, and installs `requirements.txt` into it with `--require-hashes --only-binary :all:`: every package must "
+                "be the locked version, a prebuilt wheel, and match a locked digest. The hosted runtime's own packages are never "
+                "replaced, which is why no restart is needed. The cell also defines `run_stage`, `load_record` and `show_image`, "
+                "the three helpers the learner cells use."
+            ),
+        },
+        {
+            "cell": "install",
+            "md": (
+                "**Infrastructure: the isolated environment.** Installation messages from `uv` are normal and can take a few "
+                "minutes. A failed download or a hash mismatch stops the cell; never remove a pin or a hash to get past one."
+            ),
+            "after": (
+                "**Expected result:** one dictionary with the generating revision, the isolated environment's Python (3.12.12), "
+                "`torch`, `diffusers`, `transformers` and `peft` versions, `'cuda': True`, the number of locked packages and the "
+                "setup time. If `'cuda'` is `False` the cell stops: this notebook is not supported on a CPU-only runtime; see "
+                "**Troubleshooting**."
+            ),
+        },
+        {
+            "cell": "weights",
+            "md": (
+                "## 3. Pin, stage and verify the model · [Engineering]\n\n"
+                "> **Infrastructure.** The next code cell is collapsed. It downloads about 16.5 GB of pinned weights and checks "
+                "every file's size and SHA-256; you may run it without studying its implementation.\n\n"
+                "The model identity is carried twice — `MODEL_ID`/`MODEL_REVISION` in the carried `pipeline.py` and the manifest "
+                "of each snapshot (paths, byte sizes, SHA-256) — and the `weights` stage first checks that they agree. It installs "
+                "each carried manifest into `weights/`, fetches exactly the files that are absent from the Hugging Face Hub **at "
+                "the pinned revisions** (never `main`), and re-hashes every file, raising on the first size or digest mismatch. "
+                "Three snapshots are staged: the inpainting decoder (`{MODEL_ID}` at `{MODEL_REVISION}`), the shared diffusion "
+                "prior and the CLIP scorer. There is no fallback to a different download, and no remote model code is executed. "
+                "Every later stage verifies the snapshots it loads again before loading them."
+            ),
+            "after": (
+                "**What to notice:** for each of the three snapshots, its id, revision, licence and file count; a `fetched` list of "
+                "the files downloaded on this run (empty on a rerun, because staging only fetches files that are absent); and a "
+                "count of verified files. A size or SHA-256 mismatch stops the cell with a `ValueError` naming the file — see "
+                "**Troubleshooting**, and never edit a manifest to get past one."
+            ),
+        },
+    ],
     "cells": [
         {
             "md": (
                 "## 4. Sample photographs, masks, validation and splits · [Concept]\n\n"
-                "The default dataset is 60 research-grade iNaturalist photographs of six common North American birds — 10 per "
-                "species, one per observer per species, every one CC0 — fetched by photo id from the open-data bucket and "
-                "refused on any byte-size or SHA-256 mismatch (`fetch_corpus`). Each caption is generated from the species by one "
-                "template. `build_sample_dataset` draws a seeded stratified split — 6 / 2 / 2 per species for training, "
-                "validation and test. The sample has no hand-drawn masks, so `validate_dataset` gives every record the "
-                "deterministic **centre mask**: a white box over the middle half of each side, which covers a quarter of the "
-                "photograph and usually most of the bird. `dataset_manifest` validates every split, checks that no photograph "
-                "appears twice and records a digest.\n\n"
+                "From here on, every code cell runs one stage of the carried runner with `run_stage`; its printed dictionaries "
+                "appear under the cell. This cell runs the `prepare` stage. The default dataset is 60 research-grade iNaturalist "
+                "photographs of six common North American birds — 10 per species, one per observer per species, every one CC0 — "
+                "fetched by photo id from the open-data bucket and refused on any byte-size or SHA-256 mismatch (`fetch_corpus`). "
+                "Each caption is generated from the species by one template. `build_sample_dataset` draws a seeded stratified "
+                "split — 6 / 2 / 2 per species for training, validation and test. The sample has no hand-drawn masks, so "
+                "`validate_dataset` gives every record the deterministic **centre mask**: a white box over the middle half of each "
+                "side, which covers a quarter of the photograph and usually most of the bird. `dataset_manifest` validates every "
+                "split, checks that no photograph appears twice and records a digest. The stage records the split so that every "
+                "later stage rebuilds exactly these records and refuses to run if they changed.\n\n"
                 "**Predict before running:** the centre mask covers the middle half of each side. What fraction of each "
-                "512 × 512 photograph will be repainted? Which of the three probes below do you expect validation to refuse?"
+                "512 × 512 photograph will be repainted? Which of the four probes below do you expect validation to refuse?"
             ),
             "code": (
-                "import json\n"
-                "import os\n"
-                "from pathlib import Path\n\n"
-                "import numpy as np\n"
-                "from PIL import Image\n\n"
-                "USE_BYOD = False  # @param {{type:\"boolean\"}}\n"
-                "BYOD_PATH = ''  # @param {{type:\"string\"}}\n\n"
-                "os.makedirs('outputs', exist_ok=True)\n"
-                "if USE_BYOD:\n"
-                "    if BYOD_PATH:\n"
-                "        byod_path = Path(BYOD_PATH)\n"
-                "    else:\n"
-                "        from google.colab import files\n"
-                "        uploaded = files.upload()\n"
-                "        file_name, payload = next(iter(uploaded.items()))\n"
-                "        byod_path = Path('work') / file_name\n"
-                "        byod_path.parent.mkdir(parents=True, exist_ok=True)\n"
-                "        byod_path.write_bytes(payload)\n"
-                "    byod_records = load_byod_dataset(byod_path)\n"
-                "    own_masks = sum('mask_image' in r for r in byod_records)\n"
-                "    print({{'byod_records': len(byod_records), 'own_masks': own_masks, 'centre_mask_fallback': len(byod_records) - own_masks}})\n"
-                "    splits = split_dataset(byod_records, seed=0)\n"
-                "    data_source = 'BYOD (' + byod_path.name + ')'\n"
-                "else:\n"
-                "    splits = fetch_sample_dataset(cache_dir='weights/inat-birds')\n"
-                "    data_source = SAMPLE_LABEL_SOURCE\n"
-                "# validate_dataset attaches the mask: a record's own mask, or the deterministic centre mask when it has none\n"
-                "train_records, val_records, test_records = (validate_dataset(splits[name], min_records=1)['records'] for name in ('train', 'validation', 'test'))\n\n"
-                "dataset_report = dataset_manifest({{'train': train_records, 'validation': val_records, 'test': test_records}})\n"
-                "print({{'data_source': data_source, 'splits': {{k: v['n_records'] for k, v in dataset_report['splits'].items()}}, 'captions': dataset_report['splits']['train']['n_captions'], 'disjoint': dataset_report['disjoint']}})\n"
-                "print({{'shorter_side': dataset_report['splits']['train']['shorter_side'], 'centre_cropped': dataset_report['splits']['train']['centre_cropped'], 'digest': dataset_report['digest'][:16] + '...'}})\n"
-                "_, first_mask = preprocess_image_and_mask(test_records[0]['image'], test_records[0]['mask_image'])\n"
-                "print({{'first_test_record': validate_inputs(test_records[0]), 'caption': test_records[0]['caption'], 'repaint_fraction': round(float((np.asarray(first_mask) > 0).mean()), 4)}})\n"
-                "prompts = sample_prompts(train_records)\n"
-                "print({{'prompts': prompts}})\n"
-                "sample_csv = write_dataset_csv(test_records, 'outputs/{stem}_sample_captions.csv')\n"
-                "print({{'sample_csv': str(sample_csv)}})\n\n"
-                "print({{'validation': INPUT_SCHEMA['validation']}})\n"
-                "probes = {{\n"
-                "    'missing caption': [{{'id': r['id'], 'image': r['image']}} for r in train_records[:4]],\n"
-                "    'image too small': [{{**train_records[0], 'image': Image.new('RGB', (200, 200))}}, *train_records[1:4]],\n"
-                "    'mask size differs from image': [{{**train_records[0], 'mask_image': Image.new('L', (300, 300))}}, *train_records[1:4]],\n"
-                "    'duplicate id': [train_records[0], *train_records[:4]],\n"
-                "}}\n"
-                "for name, records in probes.items():\n"
-                "    try:\n"
-                "        validate_dataset(records)\n"
-                "        print({{'probe': name, 'verdict': 'accepted'}})\n"
-                "    except (TypeError, ValueError) as exc:\n"
-                "        print({{'probe': name, 'rejected': str(exc)[:110]}})"
+                'from pathlib import Path\n\n'
+                'USE_BYOD = False  # @param {{type:"boolean"}}\n'
+                'BYOD_PATH = \'\'  # @param {{type:"string"}}\n\n'
+                'prepare_options = []\n'
+                'if USE_BYOD:\n'
+                '    if BYOD_PATH:\n'
+                '        byod_path = Path(BYOD_PATH)\n'
+                '    else:\n'
+                '        from google.colab import files\n'
+                '        uploaded = files.upload()\n'
+                '        file_name, payload = next(iter(uploaded.items()))\n'
+                "        byod_path = ROOT / 'byod' / Path(file_name).name\n"
+                '        byod_path.parent.mkdir(parents=True, exist_ok=True)\n'
+                '        byod_path.write_bytes(payload)\n'
+                "    prepare_options = ['--byod', byod_path.resolve()]\n"
+                "run_stage('prepare', *prepare_options)"
             ),
-            "after": (
+        },
+        {
+            "md": (
                 "**What to notice:** 36 / 12 / 12 records and six distinct captions on the sample path, `'disjoint'` listing the "
                 "same counts, a shorter side of a few hundred pixels (every photograph is resized and centre-cropped to 512²), "
-                "a `repaint_fraction` of 0.25, a written `outputs/{stem}_sample_captions.csv` in the shape BYOD expects "
-                "(its `mask` column is empty because the sample uses the centre mask), and every probe rejected before any model "
-                "runs, each message naming the failed rule.\n\n"
+                "a `repaint_fraction` between 0.25 (a square photograph) and about 0.33 (a 4:3 photograph), a written `outputs/{stem}_sample_captions.csv` in the run directory in the shape "
+                "BYOD expects (its `mask` column is empty because the sample uses the centre mask), and every probe rejected before "
+                "any model runs, each message naming the failed rule. With `USE_BYOD = True` the stage first reports how many of "
+                "your records brought their own mask, and an invalid zip stops this cell with a `RuntimeError` that repeats the "
+                "validator's message.\n\n"
                 + CHECK.format(
                     body=(
-                        "The mask box spans the middle half of the width and the middle half of the height, so it covers "
-                        "0.5 × 0.5 = 0.25 of the pixels. All four probes are refused: a missing caption and a duplicate id "
+                        "The mask box spans the middle half of the photograph's width and height, 0.5 × 0.5 = 0.25 of its "
+                        "pixels. The centre crop to 512² then trims the longer side but keeps the whole box, so inside the "
+                        "model's square input the box covers more: 0.25 for a square photograph, 0.5 × 0.667 ≈ 0.333 for a 4:3 "
+                        "one. That is why `repaint_fraction` varies between photographs. All four probes are refused: a missing caption and a duplicate id "
                         "break the record schema, a 200 px side is below the 256 px minimum, and a mask of a different size "
                         "cannot be aligned with its photograph. Validation never looks at *content*: a mask over the sky and a "
                         "caption that describes another bird would both pass."
@@ -285,35 +350,26 @@ TEMPLATE = {
         {
             "md": (
                 "## 5. Encode every caption with the prior, then release it · [Concept]\n\n"
-                "`pipe.encode_prompts` loads the Kandinsky 2.2 diffusion prior from the verified snapshot (float16 on CUDA), "
-                "runs the prior's own diffusion process to produce a CLIP image embedding for each distinct caption, and keeps "
-                "the embeddings on the CPU. Each caption's prior run is seeded with `prompt_seed(caption)`, a 31-bit number taken "
-                "from the caption's SHA-256, so the same caption gets the same seed in every process. Encoded here: the six "
-                "captions (training, validation and test share them), one new caption for Section 9, and the empty negative "
-                "caption that classifier-free guidance needs. `release_prior` then frees the prior's GPU memory.\n\n"
-                "**Expected result:** eight captions encoded (seven on the sample path plus the empty one), and GPU memory "
-                "falling after the release."
+                "The `encode` stage loads the pipeline and calls `pipe.encode_prompts`, which loads the Kandinsky 2.2 diffusion "
+                "prior from the verified snapshot (float16 on CUDA), runs the prior's own diffusion process to produce a CLIP "
+                "image embedding for each distinct caption, and keeps the embeddings on the CPU. Each caption's prior run is seeded "
+                "with `prompt_seed(caption)`, a 31-bit number taken from the caption's SHA-256, so the same caption gets the same "
+                "seed in every process. Encoded here: the six captions (training, validation and test share them), one new caption "
+                "for Section 9, and the empty negative caption that classifier-free guidance needs. `release_prior` then frees the "
+                "prior's GPU memory. The embeddings are written to a safetensors cache in the run directory, and every later stage "
+                "reads them from there instead of loading the prior again.\n\n"
+                "**Expected result:** eight captions encoded (seven on the sample path plus the empty one), GPU memory falling "
+                "after the release, and the path of the prompt cache."
             ),
-            "code": (
-                "import time\n\n"
-                "NEW_PROMPT = 'a photo of a House Finch (Haemorhous mexicanus) perched on a snow-covered branch in winter'\n\n"
-                "def gpu_memory_gb():\n"
-                "    return round(torch.cuda.memory_allocated() / 1e9, 2) if torch.cuda.is_available() else None\n\n"
-                "all_prompts = sample_prompts(train_records + val_records + test_records) + [NEW_PROMPT]\n"
-                "encode_report = pipe.encode_prompts(all_prompts)\n"
-                "print({{**encode_report, 'gpu_memory_gb_with_prior': gpu_memory_gb()}})\n"
-                "print({{'prompt_seed': {{p[:48]: prompt_seed(p) for p in all_prompts[:2]}}}})\n"
-                "released = pipe.release_prior()\n"
-                "print({{'prior_released': released, 'gpu_memory_gb_after_release': gpu_memory_gb(), 'device': pipe.device, 'precision': str(pipe.dtype).replace('torch.', '')}})"
-            ),
+            "code": "run_stage('encode')",
         },
         {
             "md": (
                 "## 6. The frozen baseline: denoising loss, preservation and CLIP · [Evaluation practice]\n\n"
                 "**Question tested:** before any training, how well does the pretrained model predict noise on held-out "
                 "photographs, how well does it preserve the kept region, and how well do its repainted photographs match their "
-                "captions? The pipeline was built with `use_lora=True`, but the adapter's B matrices start at zero, so until "
-                "Section 7 this is the pretrained model.\n\n"
+                "captions? The `frozen` stage builds the pipeline with `use_lora=True`, but the adapter's B matrices start at "
+                "zero, so this is the pretrained model. These numbers are recorded as the **baseline** for Section 8.\n\n"
                 "- **Held-out denoising loss** (`pipe.evaluate`): each held-out photograph is MoVQ-encoded, noised at five fixed "
                 "timesteps (100, 300, 500, 700, 900) with seeded noise, and the UNet — given the masked latents and the keep "
                 "mask — predicts that noise; the score is the mean squared error. The same seed gives the same latents, noise "
@@ -330,58 +386,18 @@ TEMPLATE = {
                 "the original-photograph ceiling? Will preservation be perfect (PSNR above 60 dB) or visibly imperfect?"
             ),
             "code": (
-                "STEPS = 20  # @param {{type:\"integer\"}}\n"
-                "GUIDANCE_SCALE = 4.0  # @param {{type:\"number\"}}\n"
-                "EVAL_SEED = 0\n"
-                "GENERATION_SEED = 1000\n\n"
-                "def prepared(records):\n"
-                "    pairs = [preprocess_image_and_mask(r['image'], r['mask_image']) for r in records]\n"
-                "    return [image for image, _ in pairs], [mask for _, mask in pairs]\n\n"
-                "def mean_fill(image, mask):\n"
-                "    pixels = np.asarray(image).copy()\n"
-                "    repaint = np.asarray(mask) > 0\n"
-                "    pixels[repaint] = pixels[~repaint].mean(axis=0).astype(np.uint8)\n"
-                "    return Image.fromarray(pixels)\n\n"
-                "def masked_view(image, mask):\n"
-                "    pixels = np.asarray(image).copy()\n"
-                "    pixels[np.asarray(mask) > 0] = 128\n"
-                "    return Image.fromarray(pixels)\n\n"
-                "def triptych_grid(images, masks, outputs, path, rows=6):\n"
-                "    sheet = Image.new('RGB', (256 * 3, 256 * min(rows, len(images))), 'white')\n"
-                "    for i, (image, mask, output) in enumerate(list(zip(images, masks, outputs))[:rows]):\n"
-                "        for j, tile in enumerate((image, masked_view(image, mask), output)):\n"
-                "            sheet.paste(tile.resize((256, 256)), (256 * j, 256 * i))\n"
-                "    sheet.save(path)\n"
-                "    return path\n\n"
-                "def clip_mean(scores):\n"
-                "    return round(scores['mean_prompt_similarity'], 3)\n\n"
-                "if pipe.adapter is not None:\n"
-                "    raise RuntimeError('this pipeline is already adapted, so Section 6 would not measure the frozen model: re-run from Section 3 (Runtime → Run cell and below)')\n"
-                "scorer = ClipScorer(device=pipe.device, weights_dir=str(DEFAULT_SCORER_DIR))\n"
-                "t0 = time.perf_counter()\n"
-                "frozen_val = pipe.evaluate(val_records, seed=EVAL_SEED)\n"
-                "frozen_test = pipe.evaluate(test_records, seed=EVAL_SEED)\n"
-                "print({{'frozen_denoising_mse': {{'validation': frozen_val['denoising_mse'], 'test': frozen_test['denoising_mse']}}, 'by_timestep_test': frozen_test['by_timestep'], 'seconds': round(time.perf_counter() - t0, 1)}})\n\n"
-                "test_images, test_masks = prepared(test_records)\n"
-                "test_prompts = [r['caption'] for r in test_records]\n"
-                "frozen_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)\n"
-                "frozen_images = [g['image'] for g in frozen_generation['results']]\n"
-                "print({{'inpainted': len(frozen_images), 'steps': frozen_generation['steps'], 'guidance_scale': frozen_generation['guidance_scale'], 'seconds': frozen_generation['seconds'], 'adapted': frozen_generation['model']['adapted']}})\n"
-                "frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)\n"
-                "frozen_clip = score_generations(scorer, frozen_images, test_prompts)\n"
-                "fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks)], test_prompts)\n"
-                "real_clip = score_generations(scorer, test_images, test_prompts)\n"
-                "print({{'clip_prompt_similarity': {{'mean_fill_floor': clip_mean(fill_clip), 'frozen': clip_mean(frozen_clip), 'original_photo_ceiling': clip_mean(real_clip)}}}})\n"
-                "print({{'frozen_preservation': {{'mean_unmasked_psnr_db': round(frozen_preservation['mean_unmasked_psnr_db'], 2), 'mean_unmasked_ssim': round(frozen_preservation['mean_unmasked_ssim'], 4)}}}})\n"
-                "for result, clip in list(zip(frozen_generation['results'], frozen_clip['prompt_similarities']))[:6]:\n"
-                "    print({{'id': result['id'], 'caption': result['prompt'][:40], 'unmasked_psnr_db': result['unmasked_psnr_db'], 'unmasked_ssim': result['unmasked_ssim'], 'clip': round(clip, 2)}})\n"
-                "print({{'grid': str(triptych_grid(test_images, test_masks, frozen_images, 'outputs/{stem}_frozen_grid.jpg'))}})"
+                'STEPS = 20  # @param {{type:"integer"}}\n'
+                'GUIDANCE_SCALE = 4.0  # @param {{type:"number"}}\n\n'
+                "run_stage('frozen', '--steps', STEPS, '--guidance', GUIDANCE_SCALE)\n"
+                "show_image('{stem}_frozen_grid.jpg', 'Frozen model: photograph, masked view and output, one row per test photograph')"
             ),
-            "after": (
+        },
+        {
+            "md": (
                 "**What to notice:** the denoising loss by timestep — noise is harder to predict at low timesteps (little noise) "
                 "than the mean suggests, so compare timestep by timestep later. The three CLIP numbers should be ordered, with the "
-                "floor lowest; the grid shows each photograph, its masked view and the frozen output side by side. Preservation "
-                "is high but not perfect.\n\n"
+                "floor lowest; the grid under the output (`outputs/{stem}_frozen_grid.jpg` in the run directory) shows each "
+                "photograph, its masked view and the frozen output side by side. Preservation is high but not perfect.\n\n"
                 + CHECK.format(
                     body=(
                         "A mean-colour fill leaves most of the bird out, so CLIP usually scores it well below the original "
@@ -397,36 +413,37 @@ TEMPLATE = {
         {
             "md": (
                 "## 7. Bounded LoRA fine-tuning · [Concept]\n\n"
-                "`pipe.adapt` trains the 176 LoRA tensors (rank 8, 1,646,592 parameters — 0.13 % of the UNet) that `peft` "
-                "attached to the UNet's attention projections `to_q`, `to_k`, `to_v` and `to_out.0`, and nothing else; the "
-                "base UNet, the MoVQ and the prior are frozen. This is gradient-based parameter-efficient fine-tuning, not "
-                "in-context conditioning. Each step takes one training photograph's latents and keep mask (MoVQ-encoded once), "
-                "draws a timestep uniformly from the 1,000-step schedule and a noise tensor (both seeded), adds the noise, and "
-                "minimises the mean squared error between the predicted and the true noise. The optimiser is AdamW at a fixed "
-                "learning rate, with gradient-norm clipping at 1.0; on CUDA the LoRA tensors stay in float32 while the forward "
-                "pass uses float16 autocast with a gradient scaler. Epoch 0 records the frozen model's validation loss, and the "
-                "epoch with the lowest validation denoising loss is kept.\n\n"
+                "The `adapt` stage calls `pipe.adapt`, which trains the 176 LoRA tensors (rank 8, 1,646,592 parameters — 0.13 % of "
+                "the UNet) that `peft` attached to the UNet's attention projections `to_q`, `to_k`, `to_v` and `to_out.0`, and "
+                "nothing else; the base UNet, the MoVQ and the prior are frozen. This is gradient-based parameter-efficient "
+                "fine-tuning, not in-context conditioning. Each step takes one training photograph's latents and keep mask "
+                "(MoVQ-encoded once), draws a timestep uniformly from the 1,000-step schedule and a noise tensor (both seeded), adds "
+                "the noise, and minimises the mean squared error between the predicted and the true noise. The optimiser is AdamW "
+                "at a fixed learning rate, with gradient-norm clipping at 1.0; on CUDA the LoRA tensors stay in float32 while the "
+                "forward pass uses float16 autocast with a gradient scaler. Epoch 0 records the frozen model's validation loss, and "
+                "the epoch with the lowest validation denoising loss is kept.\n\n"
+                "Before its process ends, the stage records two reference values of the trained model still in memory — its test "
+                "denoising loss and one inpainted photograph at a fixed seed — and exports the adapter with `pipe.save_artifact` "
+                "as `outputs/{stem}_adapter/`: the 176 trained tensors as `adapter.safetensors` with a `manifest.json` recording the "
+                "artifact format, the decoder's id and revision, the LoRA configuration, the tensor names, the optimiser and "
+                "precision, the file size and SHA-256, and the metadata passed in. The base model is not in the artifact: it must "
+                "be reloaded from the pinned revision.\n\n"
                 "**Predict before running:** will the training loss fall steadily from epoch to epoch? Will the validation loss "
                 "fall by more or less than the training loss?"
             ),
             "code": (
-                "EPOCHS = 4  # @param {{type:\"integer\"}}\n"
-                "LEARNING_RATE = 1e-4  # @param {{type:\"number\"}}\n"
-                "BATCH_SIZE = 1  # @param {{type:\"integer\"}}\n\n"
-                "def report(entry):\n"
-                "    row = {{'epoch': entry['epoch'], 'train_loss': None if entry['train_loss'] is None else round(entry['train_loss'], 4), 'val_denoising_mse': entry['val_loss']}}\n"
-                "    if 'note' in entry:\n"
-                "        row['note'] = entry['note']\n"
-                "    print(row)\n\n"
-                "t0 = time.perf_counter()\n"
-                "adapt_result = pipe.adapt(train_records, val_records, epochs=EPOCHS, lr=LEARNING_RATE, batch_size=BATCH_SIZE, seed=EVAL_SEED, progress=report)\n"
-                "adapt_seconds = round(time.perf_counter() - t0, 1)\n"
-                "print({{'trainable_parameters': adapt_result['adapter']['n_trainable'], 'total_parameters': adapt_result['adapter']['n_total'], 'steps': adapt_result['steps'], 'best_epoch': adapt_result['best_epoch'], 'optimizer': adapt_result['adapter']['optimizer'], 'precision': adapt_result['adapter']['precision'], 'seconds': adapt_seconds, 'gpu_memory_gb': gpu_memory_gb()}})"
+                'EPOCHS = 4  # @param {{type:"integer"}}\n'
+                'LEARNING_RATE = 1e-4  # @param {{type:"number"}}\n'
+                'BATCH_SIZE = 1  # @param {{type:"integer"}}\n\n'
+                "run_stage('adapt', '--epochs', EPOCHS, '--lr', LEARNING_RATE, '--batch-size', BATCH_SIZE)"
             ),
-            "after": (
+        },
+        {
+            "md": (
                 "**What to notice:** one row per epoch, epoch 0 with no training loss; a training loss that jumps between epochs "
-                "because each step draws a random timestep; and a `best_epoch` that may be 0 if no epoch improved the validation "
-                "loss — in that case the kept adapter is the untrained one.\n\n"
+                "because each step draws a random timestep; a `best_epoch` that may be 0 if no epoch improved the validation "
+                "loss — in that case the kept adapter is the untrained one; and the exported artifact: 176 tensors of about "
+                "6.6 MB with its SHA-256.\n\n"
                 + CHECK.format(
                     body=(
                         "The training loss is noisy, not a smooth curve: with one photograph per step, a step at a low timestep "
@@ -441,61 +458,28 @@ TEMPLATE = {
         {
             "md": (
                 "## 8. Held-out evaluation: the paired comparison · [Evaluation practice]\n\n"
-                "**Question tested:** on photographs never used for training or for choosing the epoch, what changed? The adapted "
-                "model is measured exactly as the frozen model was in Section 6 — the same seed, so the same latents, noise and "
-                "timesteps for the denoising loss, and the same photographs, masks and generation seeds for inpainting. The cell "
-                "asserts only what the procedure guarantees: the kept epoch's validation loss is no higher than the frozen "
-                "model's (epoch 0), and re-measuring it reproduces the history. The test-split change is printed, not asserted.\n\n"
+                "**Question tested:** on photographs never used for training or for choosing the epoch, what changed? The "
+                "`evaluate` stage is a fresh process: it loads the adapter from the exported files — the artifact you would ship, "
+                "not the object that was trained — and measures it exactly as the frozen model was measured in Section 6: the same "
+                "seed, so the same latents, noise and timesteps for the denoising loss, and the same photographs, masks and "
+                "generation seeds for inpainting. The stage asserts only what the procedure guarantees — the kept epoch's "
+                "validation loss is no higher than the frozen model's (epoch 0) — and that the exported adapter reproduces the "
+                "validation loss recorded for the kept epoch. The test-split change is printed, not asserted.\n\n"
                 "**Predict before running:** will the test denoising loss fall? Will CLIP prompt similarity move towards the "
                 "ceiling? Will preservation change, and why or why not?"
             ),
             "code": (
-                "adapted_val = pipe.evaluate(val_records, seed=EVAL_SEED)\n"
-                "adapted_test = pipe.evaluate(test_records, seed=EVAL_SEED)\n"
-                "adapted_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)\n"
-                "adapted_images = [g['image'] for g in adapted_generation['results']]\n"
-                "adapted_preservation = score_inpainting_preservation(test_images, adapted_images, test_masks)\n"
-                "adapted_clip = score_generations(scorer, adapted_images, test_prompts)\n"
-                "comparison = {{\n"
-                "    'denoising_mse_validation': {{'frozen': frozen_val['denoising_mse'], 'adapted': adapted_val['denoising_mse']}},\n"
-                "    'denoising_mse_test': {{'frozen': frozen_test['denoising_mse'], 'adapted': adapted_test['denoising_mse']}},\n"
-                "    'denoising_mse_test_by_timestep': {{t: {{'frozen': frozen_test['by_timestep'][t], 'adapted': adapted_test['by_timestep'][t]}} for t in adapted_test['by_timestep']}},\n"
-                "    'mean_unmasked_psnr_db': {{'frozen': round(frozen_preservation['mean_unmasked_psnr_db'], 2), 'adapted': round(adapted_preservation['mean_unmasked_psnr_db'], 2)}},\n"
-                "    'mean_unmasked_ssim': {{'frozen': round(frozen_preservation['mean_unmasked_ssim'], 4), 'adapted': round(adapted_preservation['mean_unmasked_ssim'], 4)}},\n"
-                "    'clip_prompt_similarity': {{'mean_fill_floor': clip_mean(fill_clip), 'frozen': clip_mean(frozen_clip), 'adapted': clip_mean(adapted_clip), 'original_photo_ceiling': clip_mean(real_clip)}},\n"
-                "}}\n"
-                "for name, row in comparison.items():\n"
-                "    print({{name: row}})\n"
-                "for before, after, clip_before, clip_after in list(zip(frozen_generation['results'], adapted_generation['results'], frozen_clip['prompt_similarities'], adapted_clip['prompt_similarities']))[:6]:\n"
-                "    print({{'id': before['id'], 'caption': before['prompt'][:40], 'clip': {{'frozen': round(clip_before, 2), 'adapted': round(clip_after, 2)}}, 'unmasked_psnr_db': {{'frozen': before['unmasked_psnr_db'], 'adapted': after['unmasked_psnr_db']}}}})\n"
-                "print({{'grid': str(triptych_grid(test_images, test_masks, adapted_images, 'outputs/{stem}_adapted_grid.jpg'))}})\n"
-                "evaluation_report = {{\n"
-                "    'model': {{'id': MODEL_ID, 'revision': MODEL_REVISION, 'key': MODEL_KEY}},\n"
-                "    'components': {{'prior': {{'id': PRIOR_ID, 'revision': PRIOR_REVISION}}, 'scorer': {{'id': SCORER_ID, 'revision': SCORER_REVISION}}}},\n"
-                "    'data_source': data_source,\n"
-                "    'dataset': dataset_report,\n"
-                "    'mask': 'record mask, or the deterministic centre mask (middle half of each side) when a record has none',\n"
-                "    'generation': {{'steps': STEPS, 'guidance_scale': GUIDANCE_SCALE, 'seed': GENERATION_SEED}},\n"
-                "    'frozen': {{'validation': frozen_val, 'test': frozen_test, 'preservation': frozen_preservation, 'clip': frozen_clip}},\n"
-                "    'adapted': {{'validation': adapted_val, 'test': adapted_test, 'preservation': adapted_preservation, 'clip': adapted_clip}},\n"
-                "    'references': {{'mean_fill_floor_clip': fill_clip, 'original_photo_ceiling_clip': real_clip}},\n"
-                "    'comparison': comparison,\n"
-                "    'adaptation': {{k: v for k, v in adapt_result['adapter'].items() if k != 'trainable_names'}},\n"
-                "    'history': adapt_result['history'],\n"
-                "    'adaptation_seconds': adapt_seconds,\n"
-                "}}\n"
-                "with open('outputs/{stem}_evaluation_report.json', 'w', encoding='utf-8') as f:\n"
-                "    json.dump(evaluation_report, f, indent=2)\n"
-                "best = adapt_result['history'][adapt_result['best_epoch']]\n"
-                "assert best['val_loss'] <= adapt_result['history'][0]['val_loss']\n"
-                "assert abs(adapted_val['denoising_mse'] - best['val_loss']) < 1e-4\n"
-                "print({{'test_denoising_mse_change': round(adapted_test['denoising_mse'] - frozen_test['denoising_mse'], 6), 'note': 'held-out observation, not asserted'}})\n"
-                "print({{'report': 'outputs/{stem}_evaluation_report.json'}})"
+                "run_stage('evaluate')\n"
+                "show_image('{stem}_frozen_grid.jpg', 'Frozen model (Section 6)')\n"
+                "show_image('{stem}_adapted_grid.jpg', 'Adapted model: same photographs, masks and seeds')"
             ),
-            "after": (
+        },
+        {
+            "md": (
                 "**What to notice:** read the rows side by side. The denoising loss rows compare identical inputs; the CLIP row "
-                "places both models between the floor and the ceiling; the preservation rows should barely move. Open the two "
-                "grids in `outputs/` and compare the same photograph in each.\n\n"
+                "places both models between the floor and the ceiling; the preservation rows should barely move. Compare the two "
+                "grids under the output — same photographs, masks and seeds, so any difference comes from the adapter. The full "
+                "record is `outputs/{stem}_evaluation_report.json` in the run directory.\n\n"
                 + CHECK.format(
                     body=(
                         "Preservation barely moves because the kept region is carried through the latents in both models: LoRA "
@@ -510,116 +494,64 @@ TEMPLATE = {
         },
         {
             "md": (
-                "## 9. A new caption, artifact export and fresh reload · [Engineering]\n\n"
-                "**New-data inference.** The adapted model inpaints `NEW_PROMPT` — a caption that appears in no training record — "
-                "into two held-out test photographs with their centre masks. The CLIP similarity and preservation are printed "
-                "as a sanity check, not an evaluation.\n\n"
-                "**Export.** `pipe.save_artifact` writes the 176 trained tensors as `adapter.safetensors` with a `manifest.json` "
-                "recording the artifact format, the decoder's id and revision, the LoRA configuration, the tensor names, the "
-                "optimiser and precision, the file size and SHA-256, and the metadata passed in. The base model is not in the "
-                "artifact: it must be reloaded from the pinned revision.\n\n"
-                "**Fresh reload.** `KandinskyInpaintPipeline.from_artifact` re-verifies the decoder and prior snapshots, checks the "
-                "artifact format, the base-model identity and the weights digest **before** loading the tensors, and builds a new "
-                "UNet with the adapter attached — a new object from files, not the in-memory model. The fresh pipeline adopts the "
-                "caption embeddings already encoded, and the cell asserts that it reproduces the held-out denoising loss and the "
-                "same inpainted photograph for the same caption and seed within a stated tolerance.\n\n"
-                "**Expected result:** two saved PNGs, an artifact of about 6.6 MB (1,646,592 float32 values), and a reload parity "
-                "with a denoising-loss difference below `1e-6` and a mean absolute pixel difference below 1.0."
+                "## 9. Fresh reload and a new caption · [Engineering]\n\n"
+                "**Fresh reload.** The `reload` stage is a second fresh process. `KandinskyInpaintPipeline.from_artifact` "
+                "re-verifies the decoder and prior snapshots, checks the artifact format, the base-model identity and the weights "
+                "digest **before** loading the tensors, and builds a new UNet with the adapter attached — a new object from files; "
+                "nothing of the trained model survives in memory between processes. It reads the caption embeddings from the cache "
+                "and checks parity against the two reference values the `adapt` process recorded from the trained model while it "
+                "was still in memory: the same held-out denoising loss and the same inpainted photograph for the same caption and "
+                "seed, within a stated tolerance.\n\n"
+                "**New-data inference.** Only after parity holds does the reloaded model inpaint `NEW_PROMPT` — a caption that "
+                "appears in no training record — into two held-out test photographs with their masks. The CLIP similarity and "
+                "preservation are printed as a sanity check, not an evaluation. Finally the stage writes "
+                "`outputs/{stem}_result.json` with the provenance, the runtime versions and the comparison, and lists every file in "
+                "the run's `outputs/`.\n\n"
+                "**Expected result:** the artifact of about 6.6 MB (1,646,592 float32 values) with its SHA-256, a reload parity with "
+                "a denoising-loss difference below `1e-6` and a mean absolute pixel difference below 1.0, two new-caption "
+                "predictions, the listing of `outputs/`, and the two saved PNGs."
             ),
             "code": (
-                "import platform\n"
-                "import shutil\n\n"
-                "new_records = [{{**r, 'caption': NEW_PROMPT}} for r in test_records[:2]]\n"
-                "new_generation = pipe.generate(new_records, seed=2000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)\n"
-                "new_clip = score_generations(scorer, [g['image'] for g in new_generation['results']], [NEW_PROMPT] * len(new_records))\n"
-                "new_predictions = []\n"
-                "for i, (result, clip) in enumerate(zip(new_generation['results'], new_clip['prompt_similarities'])):\n"
-                "    path = f'outputs/{stem}_new_prompt_{{i}}.png'\n"
-                "    result['image'].save(path)\n"
-                "    new_predictions.append({{'id': result['id'], 'prompt': NEW_PROMPT, 'image': path, 'unmasked_psnr_db': result['unmasked_psnr_db'], 'unmasked_ssim': result['unmasked_ssim'], 'clip_prompt_similarity': round(clip, 3)}})\n"
-                "    print({{**new_predictions[-1], 'note': 'sanity check, not an evaluation'}})\n\n"
-                "artifact_dir = Path('outputs/{stem}_adapter')\n"
-                "shutil.rmtree(artifact_dir, ignore_errors=True)\n"
-                "pipe.save_artifact(artifact_dir, metadata={{'tutorial': '{stem}', 'data_source': data_source, 'dataset_digest': dataset_report['digest']}})\n"
-                "artifact_manifest = json.loads((artifact_dir / 'manifest.json').read_text(encoding='utf-8'))\n"
-                "print({{'artifact': str(artifact_dir), 'format': artifact_manifest['format'], 'tensors': artifact_manifest['weights']['n_tensors'], 'bytes': artifact_manifest['weights']['bytes'], 'sha256': artifact_manifest['weights']['sha256'][:16] + '...'}})\n\n"
-                "reloaded = KandinskyInpaintPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=pipe.device)\n"
-                "reloaded.import_prompt_cache(pipe.export_prompt_cache())\n"
-                "reloaded_test = reloaded.evaluate(test_records, seed=EVAL_SEED)\n"
-                "before = pipe.generate(test_records[:1], seed=3000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)['results'][0]['image']\n"
-                "after = reloaded.generate(test_records[:1], seed=3000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)['results'][0]['image']\n"
-                "parity = {{'denoising_mse_diff': round(abs(reloaded_test['denoising_mse'] - adapted_test['denoising_mse']), 8), 'mean_abs_pixel_diff': round(float(np.abs(np.asarray(before, dtype=np.float32) - np.asarray(after, dtype=np.float32)).mean()), 4)}}\n"
-                "print({{'reload_parity': parity, 'reloaded_best_epoch': reloaded.adapter['best_epoch']}})\n"
-                "assert parity['denoising_mse_diff'] < 1e-6 and parity['mean_abs_pixel_diff'] < 1.0\n\n"
-                "result_payload = {{\n"
-                "    'notebook_source': NOTEBOOK_SOURCE,\n"
-                "    'repository_revision': NOTEBOOK_SOURCE['repository_revision'],\n"
-                "    'model': {{**evaluation_report['model'], 'model_license': MODEL_LICENSE, 'device': pipe.device, 'precision': str(pipe.dtype).replace('torch.', ''), 'source': pipe.source}},\n"
-                "    'components': {{**evaluation_report['components'], 'licenses': {{'prior': 'apache-2.0', 'scorer': 'mit'}}}},\n"
-                "    'provenance': {{\n"
-                "        'snapshots': {{'decoder': len(MANIFEST['files']), 'prior': len(PRIOR_MANIFEST['files']), 'scorer': len(SCORER_MANIFEST['files'])}},\n"
-                "        'safetensors_only': True,\n"
-                "        'remote_code_executed': False,\n"
-                "        'prior_released_before_training': released,\n"
-                "        'prompt_seed': 'SHA-256 of the caption, first 4 bytes, 31 bits',\n"
-                "        'data_base_url': CORPUS_BASE_URL,\n"
-                "        'data_license': CORPUS_LICENSE,\n"
-                "    }},\n"
-                "    'runtime': {{'python': platform.python_version(), 'torch': torch.__version__, 'diffusers': diffusers.__version__, 'transformers': transformers.__version__, 'peft': peft.__version__, 'cuda_device': torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}},\n"
-                "    'data_source': data_source,\n"
-                "    'comparison': comparison,\n"
-                "    'new_prompt_predictions': new_predictions,\n"
-                "    'artifact': {{'dir': str(artifact_dir), 'sha256': artifact_manifest['weights']['sha256'], 'bytes': artifact_manifest['weights']['bytes']}},\n"
-                "    'reload_parity': parity,\n"
-                "}}\n"
-                "with open('outputs/{stem}_result.json', 'w', encoding='utf-8') as f:\n"
-                "    json.dump(result_payload, f, indent=2)\n\n"
-                "print('outputs/:')\n"
-                "for path in sorted(Path('outputs').rglob('*')):\n"
-                "    if path.is_file():\n"
-                "        print(f'  - {{path.as_posix()}} ({{path.stat().st_size / 1024:.1f}} KB)')"
+                "run_stage('reload')\n"
+                "show_image('{stem}_new_prompt_0.png', 'New caption, first held-out photograph (reloaded adapter)')\n"
+                "show_image('{stem}_new_prompt_1.png', 'New caption, second held-out photograph (reloaded adapter)')"
             ),
-            "after": (
-                "**What to notice:** the reload parity is what the artifact boundary guarantees — the same tensors, loaded into a "
-                "freshly verified base model, reproduce the same outputs. It does not show that the outputs are good. "
-                "`outputs/{stem}_result.json` gathers identity, provenance, runtime versions, the comparison, the new-caption "
+        },
+        {
+            "md": (
+                "**What to notice:** the reloaded pipeline was built in a process that never saw the trained model — only "
+                "`adapter.safetensors`, `manifest.json` and the verified base snapshots — so matching numbers show that the files "
+                "alone carry the adaptation. That is what the artifact boundary guarantees; it does not show that the outputs are "
+                "good. `outputs/{stem}_result.json` gathers identity, provenance, runtime versions, the comparison, the new-caption "
                 "predictions and the parity in one machine-readable file."
             ),
         },
         {
             "md": (
                 "## 10. Change one thing: the mask size · [Evaluation practice]\n\n"
-                "**Predict → Change one thing → Run → Observe → Explain.** This optional activity inpaints the first two test "
-                "photographs again with the adapted model, the same captions and the same generation seeds as Section 8. Only the "
-                "mask changes: a centred box whose side is a quarter (`small`) or three quarters (`large`) of each side, instead "
-                "of the centre mask's half. It runs after every required output has been written and changes nothing that "
-                "earlier sections produced; set `RUN_ACTIVITY = False` to skip it.\n\n"
+                "**Predict → Change one thing → Run → Observe → Explain.** This optional activity runs the `activity` stage, which "
+                "loads the exported adapter and inpaints the first two test photographs again with the same captions and the same "
+                "generation seeds as Section 8. Only the mask changes: a centred box whose side is a quarter (`small`) or three "
+                "quarters (`large`) of each side, instead of the centre mask's half. It runs after every required output has been "
+                "written and changes nothing that earlier sections produced; set `RUN_ACTIVITY = False` to skip it.\n\n"
                 "**Predict before running:** with a `large` mask, will the kept-region PSNR rise or fall? Will CLIP prompt "
                 "similarity rise or fall? What do you expect with `small`?"
             ),
             "code": (
-                "RUN_ACTIVITY = True  # @param {{type:\"boolean\"}}\n"
-                "ACTIVITY_MASK = 'large'  # @param [\"small\", \"large\"]\n\n"
-                "def box_mask(image, side_fraction):\n"
-                "    width, height = image.size\n"
-                "    mask = Image.new('L', (width, height), 0)\n"
-                "    margin_x, margin_y = round(width * (1 - side_fraction) / 2), round(height * (1 - side_fraction) / 2)\n"
-                "    mask.paste(255, (margin_x, margin_y, width - margin_x, height - margin_y))\n"
-                "    return mask\n\n"
-                "if RUN_ACTIVITY:\n"
-                "    side = {{'small': 0.25, 'large': 0.75}}[ACTIVITY_MASK]\n"
-                "    changed = [{{**r, 'mask_image': box_mask(r['image'], side)}} for r in test_records[:2]]\n"
-                "    activity_generation = pipe.generate(changed, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)\n"
-                "    activity_clip = score_generations(scorer, [g['image'] for g in activity_generation['results']], test_prompts[:2])\n"
-                "    for i, (centre, new) in enumerate(zip(adapted_generation['results'][:2], activity_generation['results'])):\n"
-                "        print({{'id': centre['id'], 'repaint_fraction': {{'centre': 0.25, ACTIVITY_MASK: round(side * side, 4)}}, 'unmasked_psnr_db': {{'centre': centre['unmasked_psnr_db'], ACTIVITY_MASK: new['unmasked_psnr_db']}}, 'clip': {{'centre': round(adapted_clip['prompt_similarities'][i], 2), ACTIVITY_MASK: round(activity_clip['prompt_similarities'][i], 2)}}}})\n"
-                "    activity_images, activity_masks = prepared(changed)\n"
-                "    print({{'grid': str(triptych_grid(activity_images, activity_masks, [g['image'] for g in activity_generation['results']], 'outputs/{stem}_activity_' + ACTIVITY_MASK + '_grid.jpg'))}})"
+                'RUN_ACTIVITY = True  # @param {{type:"boolean"}}\n'
+                'ACTIVITY_MASK = \'large\'  # @param ["small", "large"]\n\n'
+                'if RUN_ACTIVITY:\n'
+                "    run_stage('activity', '--mask', ACTIVITY_MASK)\n"
+                "    show_image('{stem}_activity_' + ACTIVITY_MASK + '_grid.jpg', 'Adapted model with the ' + ACTIVITY_MASK + ' mask')\n"
+                'else:\n'
+                "    print({{'activity': 'skipped (optional)', 'to_run': 'set RUN_ACTIVITY = True and choose ACTIVITY_MASK, then run this cell'}})"
             ),
-            "after": (
-                "**Observe and explain:** compare each row's `centre` and changed values, then open the activity grid. Did the "
-                "result match your prediction? Explain it in terms of what the model is allowed to repaint and what the metrics "
-                "measure. Then switch `ACTIVITY_MASK` and run this cell again.\n\n"
+        },
+        {
+            "md": (
+                "**Observe and explain:** compare each row's `centre` and changed values, then the activity grid under the output. "
+                "Did the result match your prediction? Explain it in terms of what the model is allowed to repaint and what the "
+                "metrics measure. Then switch `ACTIVITY_MASK` and run this cell again.\n\n"
                 + CHECK.format(
                     body=(
                         "A larger mask gives the model more of the photograph to repaint, so more of the bird is generated rather "
@@ -671,24 +603,65 @@ TEMPLATE = {
         + "\n\n**Transfer:** repeat the notebook with `USE_BYOD = True` on your own photographs, with masks drawn over the regions "
         "you actually want to edit, and compare the same four numbers.\n\n"
         "## Troubleshooting\n\n"
-        "| Observation | Appropriate response |\n"
-        "|---|---|\n"
-        "| `'cuda': False` in Section 1 | Runtime → Change runtime type → T4 GPU, then Runtime → Run all. CPU-only runtimes are not supported. |\n"
-        "| The install cell stops with \"Core dependencies changed\" | Runtime → Restart session, then Run all once more; the pinned versions are then already installed. |\n"
-        "| A download fails, or a size or SHA-256 mismatch is raised | Re-run the cell once for a transient network error. A persistent mismatch means the pinned file changed upstream: stop and report it; do not remove the check. |\n"
-        "| Out of disk | Start a fresh runtime; about 20 GB of free disk is needed for the three snapshots. |\n"
-        "| CUDA out of memory | Use a fresh T4 runtime with the default `BATCH_SIZE = 1`, and make sure Section 5 released the prior. |\n"
-        "| A training loss is `nan` | Keep `LEARNING_RATE` at or below `1e-4` and re-run from Section 3; report the run if it persists. |\n"
-        "| BYOD: \"captions.csv is missing columns\" or \"file ... is not in the dataset\" | Fix the named row or file in your zip: `captions.csv` needs `id`, `file`, `caption` (and optionally `mask`), and every named file must be in the zip. |\n"
-        "| BYOD: \"mask ... is WxH px but its image is ...\" | Save each mask at exactly its photograph's size. |\n"
-        "| BYOD: \"split leaves no test record\" | Give at least one caption three or more photographs. |\n"
-        "| \"this pipeline is already adapted\" in Section 6 | Re-run from Section 3 (select it, then Runtime → Run cell and below) so the baseline is the frozen model. |\n\n"
-        "Successful execution proves that the recorded repository revision's pipeline modules, carried in this standalone "
-        "notebook, can stage and digest-verify three pinned safetensors snapshots, fetch and validate digest-pinned real "
-        "photographs with their masks, encode captions and release the prior, execute bounded LoRA fine-tuning, evaluate the "
-        "frozen and the adapted model on identical held-out inputs between a mean-fill floor and an original-photograph ceiling, "
-        "and emit the shown machine-readable artifacts — without the repository being reachable. It does **not** establish "
-        "benchmark superiority, production fitness, or image quality beyond the checks shown.\n\n"
+        "| Symptom | Likely cause | What to do |\n"
+        "|---|---|---|\n"
+        "| Section 1 stops with `No GPU driver was found` or `CUDA was not detected`, or Section 2 stops with `The isolated "
+        "environment cannot see a CUDA GPU` | the runtime has no GPU | *Runtime → Change runtime type → T4 GPU*, then run all "
+        "again from the top. This notebook is not supported on a CPU-only runtime. If Colab offers no GPU, your GPU quota may "
+        "be exhausted; try again later. |\n"
+        "| Section 1 stops with `This notebook needs a Linux x86_64 GPU runtime` | a local Windows or macOS kernel, or an ARM "
+        "machine | Use Google Colab, Kaggle, or a Linux x86_64 machine with a CUDA GPU: the locked environment is built for "
+        "manylinux x86_64 wheels. |\n"
+        "| Section 1 stops with `Not enough free disk` | the snapshots need about 16.5 GB and the isolated environment about "
+        "12 GB | Start a fresh runtime with about 30 GB free; a `weights/` directory from an earlier run is reused and counted. |\n"
+        "| `Carried file integrity failure` in Section 2 | a carried file was edited in the notebook | Do not edit the "
+        "infrastructure cells; open a fresh copy of the notebook from the repository. |\n"
+        "| `uv 0.12.15 wheel size/hash mismatch`, or a `URLError` / timeout while downloading it | a network failure or an "
+        "unexpected response from PyPI | Re-run the Section 2 install cell. Never replace the pinned URL or digest. |\n"
+        "| `CalledProcessError` from `uv venv` or `uv pip install` (for example a hash mismatch, `Failed to download` or HTTP "
+        "5xx) | a transient PyPI or network failure, or a package that no longer matches the lock | Re-run the Section 2 install "
+        "cell: `uv` reuses what it already downloaded. If a hash mismatch repeats, stop and report it — never remove "
+        "`--require-hashes`, a pin or a hash to get past it. |\n"
+        "| `RuntimeError: Stage '…' failed (exit 2): …` | the stage raised an error; the message after the colon is the stage's "
+        "own error, and the stage's full log (with the traceback) is printed above it and kept in the run directory's `logs/` | "
+        "Find the message in the rows below. A stage reads only files, so after fixing the cause you can re-run that cell and "
+        "the cells after it. |\n"
+        "| `… is missing: run the stage that writes it before …` | a learner cell was run before an earlier stage | Run the "
+        "notebook from the top, or re-run the earlier cells in order. |\n"
+        "| `the dataset changed since 'prepare'` | the BYOD zip or the photo cache changed after Section 4 | Re-run from "
+        "Section 4. |\n"
+        "| A download error (timeout, HTTP 429/5xx) in Section 3 | a transient Hugging Face Hub failure | Re-run the Section 3 "
+        "cell: staging only fetches the files that are still absent. |\n"
+        "| `ValueError: ...: size ... != manifest ...` or `sha256 ... != manifest ...` | a partial or corrupted download "
+        "(staging checks that a file exists, verification checks its bytes) | Delete the named file under `weights/` and re-run "
+        "the Section 3 cell. Never edit a manifest to get past a mismatch. |\n"
+        "| `No space left on device` during a stage | the disk filled after the Section 1 check | Start a fresh runtime with "
+        "about 30 GB free. |\n"
+        "| A photograph fetch fails in Section 4 (`URLError`, or a size or SHA-256 mismatch) | a network failure or an unexpected "
+        "response from the iNaturalist bucket | Re-run the Section 4 cell; photographs already verified are kept in "
+        "`weights/inat-birds/` and reused. |\n"
+        "| `CUDA out of memory` | a form field was raised (`BATCH_SIZE`), or another program in the runtime holds GPU memory | "
+        "Set the fields back to their defaults and re-run that cell: each stage is its own process, so the failed stage's "
+        "memory was released when it stopped. |\n"
+        "| A training loss is `nan` | the learning rate is too high | Keep `LEARNING_RATE` at or below `1e-4` and re-run from "
+        "Section 7; report the run if it persists. |\n"
+        "| `ModuleNotFoundError: No module named 'google.colab'` with `USE_BYOD = True` | the upload dialog needs Google Colab | "
+        "Set `BYOD_PATH` to a zip already in the runtime, use Colab for the upload, or keep `USE_BYOD = False`. |\n"
+        "| BYOD: `captions.csv is missing columns [...]` or `file ... is not in the dataset` | the zip layout differs from the "
+        "contract | Fix the named row or file in your zip: `captions.csv` needs `id`, `file`, `caption` (and optionally `mask`), "
+        "and every named file must be in the zip; the run directory's `outputs/{stem}_sample_captions.csv` shows the shape. |\n"
+        "| BYOD: `mask ... is WxH px but its image is ... px; they must match` | a mask saved at another size | Save each mask at "
+        "exactly its photograph's size. |\n"
+        "| BYOD: `image sides must be within 256..4096 px`, `split leaves no test record` or `split leaves ... training records` "
+        "| a photograph is too small or too large, or there are too few photographs per caption | Resize the photograph; give "
+        "at least one caption three or more photographs and provide at least four training photographs in total. |\n\n"
+        "Successful execution proves that the recorded repository revision's pipeline modules and stage runner, carried in this "
+        "standalone notebook and run in an isolated hash-locked environment, can stage and digest-verify three pinned "
+        "safetensors snapshots, fetch and validate digest-pinned real photographs with their masks, encode captions and release "
+        "the prior, execute bounded LoRA fine-tuning, evaluate the frozen and the adapted model on identical held-out inputs "
+        "between a mean-fill floor and an original-photograph ceiling, reload the exported adapter in a fresh process with parity "
+        "to the trained model, and emit the shown machine-readable artifacts — without the repository being reachable. It does "
+        "**not** establish benchmark superiority, production fitness, or image quality beyond the checks shown.\n\n"
         "## References\n\n"
         "- Repository README: https://github.com/kurtvalcorza/kandinsky-inpainting-pipeline/blob/main/README.md\n"
         "- Repository model card: https://github.com/kurtvalcorza/kandinsky-inpainting-pipeline/blob/main/MODEL_CARD.md\n"
@@ -696,6 +669,7 @@ TEMPLATE = {
         "- Hugging Face decoder repository: https://huggingface.co/kandinsky-community/kandinsky-2-2-decoder-inpaint (revision `{MODEL_REVISION}`)\n"
         "- Hugging Face prior repository: https://huggingface.co/kandinsky-community/kandinsky-2-2-prior (revision 9fc51ad5732afc5d031724219d22e6c42179c5a8)\n"
         "- Razzhigaev, A., et al. (2023). Kandinsky: An improved text-to-image synthesis with image prior and latent diffusion. arXiv:2310.03502: https://arxiv.org/abs/2310.03502\n"
+        "- uv (the installer that builds the isolated environment): https://docs.astral.sh/uv/\n"
         "- Hu, E. J., et al. (2022). LoRA: Low-rank adaptation of large language models. ICLR: https://arxiv.org/abs/2106.09685\n"
         "- Cherti, M., et al. (2023). Reproducible scaling laws for contrastive language-image learning. CVPR (the LAION CLIP scorer): https://arxiv.org/abs/2212.07143\n"
         "- Wang, Z., et al. (2004). Image quality assessment: From error visibility to structural similarity. IEEE TIP (SSIM): https://doi.org/10.1109/TIP.2003.819861\n"

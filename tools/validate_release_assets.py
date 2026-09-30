@@ -1,8 +1,8 @@
 """Static release-asset validation for the Kandinsky 2.2 inpainting DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4, with the §3.5 guided layer), the tutorial
-registry, model card, README, STATUS.md and weight documentation for source conformance and
-cross-document identity consistency, and runs the generator parity checks (PAR1-PAR3).
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4, isolated hash-locked environment of
+§25.13, with the §3.5 guided layer), the carried stage runner, the tutorial registry, model card, README, STATUS.md and weight documentation for
+source conformance and cross-document identity consistency, and runs the generator parity checks (PAR1-PAR3).
 
 This is source validation only. A PASS here is NOT clean-runtime execution evidence;
 the release gate is defined in docs/release-verification.md.
@@ -25,10 +25,7 @@ REPO_NAME = "kandinsky-inpainting-pipeline"
 NOTEBOOK_NAME = "kandinsky_inpainting_colab.ipynb"
 EXPECTED_PROFILE = "E2E"
 EXPECTED_MODEL_ID = "kandinsky-community/kandinsky-2-2-decoder-inpaint"
-PIPELINE_CLASS = "KandinskyInpaintPipeline"
-MODEL_LOAD_EXPR = (
-    f"{PIPELINE_CLASS}.from_pretrained(weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=('cuda' if torch.cuda.is_available() else 'cpu'), use_lora=True)"
-)
+STAGE_RUNNER = ROOT / "tools" / "tutorial_stages.py"
 # Pinned snapshots (shared prior, CLIP scorer) and the upstream decoder commit that first published the packaged
 # safetensors files (the model card's date_published source)
 KNOWN_SHAS: frozenset[str] = frozenset(
@@ -38,74 +35,14 @@ KNOWN_SHAS: frozenset[str] = frozenset(
         "48ea15d787d96dd68682d436c23be99b34b18aca",
     }
 )
-BYOD_GATES = ("USE_BYOD",)
-EXPECTED_OUTPUTS = (
-    "outputs/kandinsky_inpainting_sample_captions.csv",
-    "outputs/kandinsky_inpainting_frozen_grid.jpg",
-    "outputs/kandinsky_inpainting_adapted_grid.jpg",
-    "outputs/kandinsky_inpainting_evaluation_report.json",
-    "outputs/kandinsky_inpainting_adapter",
-    "outputs/kandinsky_inpainting_result.json",
-)
-CODE_MARKERS = (
-    "use_lora=True)",
-    "fetched_kandinsky_2_2_prior = stage_missing_prior_files(DEFAULT_PRIOR_DIR, allow_download=True)",
-    "fetched_clip_vit_b_32_laion2b = stage_missing_scorer_files(DEFAULT_SCORER_DIR, allow_download=True)",
-    "USE_BYOD = False",
-    "BYOD_PATH = ''",
-    "splits = fetch_sample_dataset(cache_dir='weights/inat-birds')",
-    "byod_records = load_byod_dataset(byod_path)",
-    "splits = split_dataset(byod_records, seed=0)",
-    "validate_dataset(splits[name], min_records=1)['records']",
-    "dataset_report = dataset_manifest(",
-    "write_dataset_csv(test_records, 'outputs/kandinsky_inpainting_sample_captions.csv')",
-    "validate_dataset(records)",
-    "encode_report = pipe.encode_prompts(all_prompts)",
-    "released = pipe.release_prior()",
-    "frozen_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
-    "frozen_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
-    "frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)",
-    "frozen_clip = score_generations(scorer, frozen_images, test_prompts)",
-    "fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks)], test_prompts)",
-    "real_clip = score_generations(scorer, test_images, test_prompts)",
-    "adapt_result = pipe.adapt(",
-    "lr=LEARNING_RATE",
-    "batch_size=BATCH_SIZE",
-    "adapted_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
-    "adapted_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
-    "adapted_preservation = score_inpainting_preservation(test_images, adapted_images, test_masks)",
-    "assert best['val_loss'] <= adapt_result['history'][0]['val_loss']",
-    "assert abs(adapted_val['denoising_mse'] - best['val_loss']) < 1e-4",
-    "new_generation = pipe.generate(new_records, seed=2000, steps=STEPS, guidance_scale=GUIDANCE_SCALE)",
-    "pipe.save_artifact(artifact_dir, metadata=",
-    "reloaded = KandinskyInpaintPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, prior_dir=DEFAULT_PRIOR_DIR, device=pipe.device)",
-    "reloaded.import_prompt_cache(pipe.export_prompt_cache())",
-    "assert parity['denoising_mse_diff'] < 1e-6 and parity['mean_abs_pixel_diff'] < 1.0",
-    "'safetensors_only': True",
-    "'remote_code_executed': False",
-    "'data_base_url': CORPUS_BASE_URL",
-    "RUN_ACTIVITY = True",
-    "if RUN_ACTIVITY:",
-)
-MARKDOWN_MARKERS = (
-    "**Capability:** masked image inpainting with a 1.25 B-parameter UNet diffusion model, held-out denoising-loss, preservation and CLIP-scored evaluation, and bounded LoRA fine-tuning to a set of captioned photographs",
-    "Three pinned snapshots",
-    "prior pipeline can be released",
-    "keep mask",
-    "centre mask",
-    "denoising loss",
-    "preservation",
-    "mean-fill floor",
-    "original-photograph ceiling",
-    "not a human judgement",
-    "Apache-2.0",
-    "sample-sanity",
-    "CC0",
-)
+BYOD_GATES = ("USE_BYOD", "RUN_ACTIVITY")
+# EXE1/EXE2 form fields, exactly as the Kaggle REL12 harness edits them in a run copy.
+BYOD_FIELD_LINES = ('USE_BYOD = False  # @param {type:"boolean"}', "BYOD_PATH = ''  # @param {type:\"string\"}")
 # NOTEBOOK_SPEC 2.2 §3.5 guided layer (GDL1-GDL15, SHOULD): the markers this repository commits to carrying.
 GUIDED_MARKERS = (
     ("GDL1", "**Who this notebook is for.**"),
     ("GDL2", "## How to use this notebook"),
+    ("GDL2", "**Where the code runs.**"),
     ("GDL3", "**Roadmap.**"),
     ("GDL4", "**Input → Model/System → Output.**"),
     ("GDL5", "**Learning objectives:** by the end of this notebook you will be able to **explain**"),
@@ -126,27 +63,134 @@ GUIDED_MARKERS = (
 )
 MIN_PREDICTIONS = 5
 MIN_CHECKPOINTS = 5
-# Direct-library use that must stay inside the carried module cells (G2).
-FORBIDDEN_OUTSIDE_MODULE = (
-    "from huggingface_hub import",
-    "import huggingface_hub",
+SECTION_TAGS = ("[Concept]", "[Evaluation practice]", "[Engineering]")
+INFRASTRUCTURE_TITLES = {
+    "check": "# @title Infrastructure: check the runtime, GPU and disk; create a fresh run directory",
+    "carrier": "# @title Infrastructure: write and verify the carried package, stage runner, lock and manifests",
+    "install": "# @title Infrastructure: install the locked runtime into an isolated environment and define the stage runner",
+    "weights": "# @title Infrastructure: stage and digest-verify the three pinned snapshots",
+}
+# The learner cells run the stages in this order (RUN1: the default path is one pass from the top).
+STAGE_CALLS = (
+    "run_stage('weights')",
+    "run_stage('prepare', *prepare_options)",
+    "run_stage('encode')",
+    "run_stage('frozen', '--steps', STEPS, '--guidance', GUIDANCE_SCALE)",
+    "run_stage('adapt', '--epochs', EPOCHS, '--lr', LEARNING_RATE, '--batch-size', BATCH_SIZE)",
+    "run_stage('evaluate')",
+    "run_stage('reload')",
+    "run_stage('activity', '--mask', ACTIVITY_MASK)",
+)
+# Kernel cells may import only the standard library, IPython's display helpers and (for the BYOD upload) google.colab.
+ALLOWED_KERNEL_IMPORTS = frozenset(
+    {"hashlib", "io", "json", "os", "pathlib", "platform", "shutil", "subprocess", "tempfile", "time", "urllib.error", "urllib.request", "uuid", "zipfile", "IPython.display", "google.colab"}
+)
+KERNEL_CODE_MARKERS = (
+    "CARRIED_FILES = {",
+    "CARRIED_HASHES = {",
+    "for name, text in CARRIED_FILES.items():",
+    "if hashlib.sha256(path.read_bytes()).hexdigest() != CARRIED_HASHES[name]:",
+    "NOTEBOOK_SOURCE = json.loads(",
+    "if len(wheel) != UV_BYTES or hashlib.sha256(wheel).hexdigest() != UV_SHA256:",
+    "'venv', '--managed-python', '--python', '3.12.12'",
+    "'pip', 'install', '--python', str(PYTHON), '--require-hashes', '--only-binary', ':all:'",
+    "MPLBACKEND='Agg'",
+    "for name in ('HF_TOKEN', 'HUGGING_FACE_HUB_TOKEN', 'PYTHONPATH', 'PYTHONHOME'):",
+    "def run_stage(stage, *options):",
+    "detail = error['type'] + ': ' + error['message']",
+    "raise RuntimeError(f'Stage {stage!r} failed (exit {process.returncode}): {detail}')",
+    "if not RUNTIME['cuda']:",
+    "from google.colab import files",
+    "files.upload()",
+    "byod_path = Path(BYOD_PATH)",
+    "prepare_options = ['--byod', byod_path.resolve()]",
+    "if RUN_ACTIVITY:",
+)
+# What the carried stage runner must do (checked on tools/tutorial_stages.py, which the carrier holds byte for byte).
+RUNNER_MARKERS = (
+    "KandinskyInpaintPipeline.from_pretrained(",
+    "use_lora=True",
+    "KandinskyInpaintPipeline.from_artifact(",
+    "fetched = stage(target, allow_download=True)",
+    "verified = verify(target)",
+    "splits = load_sample_splits(run)",
+    "fetch_sample_dataset(cache_dir=run.weights / SAMPLE_CACHE)",
+    "byod_records = load_byod_dataset(byod_path)",
+    "splits = split_dataset(byod_records, seed=0)",
+    'validate_dataset(splits[name], min_records=1)["records"]',
+    "dataset_report = dataset_manifest(",
+    "write_dataset_csv(test_records,",
+    '"mask size differs from image"',
+    "validate_dataset(records)",
+    'if digest != data["dataset_digest"]:',
+    "encode_report = pipe.encode_prompts(all_prompts)",
+    "released = pipe.release_prior()",
+    "save_prompt_cache(run, cache)",
+    "load_prompt_cache(run, pipe,",
+    "frozen_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
+    "frozen_generation = pipe.generate(test_records, seed=GENERATION_SEED, steps=opts.steps, guidance_scale=opts.guidance)",
+    "frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)",
+    "frozen_clip = score_generations(scorer, frozen_images, test_prompts)",
+    "fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks, strict=True)], test_prompts)",
+    "real_clip = score_generations(scorer, test_images, test_prompts)",
+    "adapt_result = pipe.adapt(",
+    "lr=opts.lr",
+    "batch_size=opts.batch_size",
+    "in_memory_test = pipe.evaluate(",
+    "manifest = pipe.save_artifact(artifact_dir, metadata=",
+    'pipe = load_from_artifact(run, Path(adapted_state["artifact"]["dir"]))',
+    "adapted_test = pipe.evaluate(test_records, seed=EVAL_SEED)",
+    "adapted_preservation = score_inpainting_preservation(test_images, adapted_images, test_masks)",
+    "adapted_clip = score_generations(scorer, adapted_images, test_prompts)",
+    'if not best["val_loss"] <= history[0]["val_loss"]:',
+    'if not abs(adapted_val["denoising_mse"] - best["val_loss"]) < 1e-4:',
+    "reloaded = load_from_artifact(run, artifact_dir)",
+    'if not (parity["denoising_mse_diff"] < 1e-6 and parity["mean_abs_pixel_diff"] < 1.0):',
+    "new_generation = reloaded.generate(new_records, seed=NEW_PROMPT_SEED",
+    'changed = [{**r, "mask_image": box_mask(r["image"], side)} for r in splits["test"][:2]]',
+    '"safetensors_only": True',
+    '"remote_code_executed": False',
+    '"data_base_url": CORPUS_BASE_URL',
+    "error_file.write_text(json.dumps(",
+    'print(f"STAGE FAILED ({options.stage}): {type(exc).__name__}: {message}", flush=True)',
+)
+EXPECTED_OUTPUTS = (
+    "_sample_captions.csv",
+    "_frozen_grid.jpg",
+    "_adapted_grid.jpg",
+    "_evaluation_report.json",
+    "_adapter",
+    "_result.json",
+    "_new_prompt_",
+    "_activity_",
+)
+MARKDOWN_MARKERS = (
+    "**Capability:** masked image inpainting with a 1.25 B-parameter UNet diffusion model, held-out denoising-loss, preservation and CLIP-scored evaluation, and bounded LoRA fine-tuning to a set of captioned photographs",
+    "Three pinned snapshots",
+    "prior pipeline can be released",
+    "keep mask",
+    "centre mask",
+    "denoising loss",
+    "preservation",
+    "mean-fill floor",
+    "original-photograph ceiling",
+    "not a human judgement",
+    "Apache-2.0",
+    "sample-sanity",
+    "CC0",
+    "Nothing is installed into the notebook kernel",
+    "--require-hashes",
+)
+# Direct model-library use that must stay inside the carried files (G2): the kernel imports no model library at all.
+FORBIDDEN_IN_KERNEL = (
+    "huggingface_hub",
     "hf_hub_download(",
-    "urllib.request",
-    "from safetensors",
-    "load_file(",
-    "save_file(",
-    "torch.load(",
-    "pickle.load",
-    "Unpickler",
-    "torch.no_grad(",
-    "torch.inference_mode(",
-    ".backward(",
-    "from diffusers ",
-    "import diffusers.",
-    "from transformers ",
-    "from peft ",
-    "add_adapter(",
-    "CLIPModel",
+    "safetensors",
+    "pickle",
+    "sys.executable",
+    "importlib",
+    "pip install",
+    "'-m', 'pip'",
 )
 
 NOTEBOOK_SPEC = "2.2"
@@ -154,6 +198,7 @@ ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABI
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+SHA64 = re.compile(r"^[0-9a-f]{64}$")
 IDENTITY_NAMES = ("MODEL_ID", "MODEL_REVISION", "MODEL_LICENSE", "MODEL_KEY")
 UNSUPPORTED_CLAIMS = re.compile(
     r"\b(production[- ]ready|battle[- ]tested|state[- ]of[- ]the[- ]art results (were|are) reproduced"
@@ -182,27 +227,6 @@ REQUIRED_CARD_HEADINGS = [
     (6, "Risks and harms"),
     (6, "Use cases"),
 ]
-COMMON_CODE_MARKERS = (
-    "PINS = [",
-    "NOTEBOOK_SOURCE = {",
-    "SKIP_INSTALL = os.environ.get('DIMER_NOTEBOOK_CI_PREINSTALLED') == '1'",
-    "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *PINS], check=True)",
-    "importlib.metadata.packages_distributions()",
-    "importlib.invalidate_caches()",
-    "platform.python_version()",
-    "torch.__version__",
-    "MANIFEST = {",
-    "if (MANIFEST['modelId'], MANIFEST['revision']) != (MODEL_ID, MODEL_REVISION):",
-    "WEIGHTS_DIR = DEFAULT_WEIGHTS_DIR",
-    "json.dump(MANIFEST, handle, indent=2)",
-    "fetched = stage_missing_files(WEIGHTS_DIR, allow_download=True)",
-    "snapshot = verify_snapshot(WEIGHTS_DIR)",
-    "'repository_revision': NOTEBOOK_SOURCE['repository_revision']",
-    "'notebook_source': NOTEBOOK_SOURCE",
-    "os.makedirs('outputs', exist_ok=True)",
-    "from google.colab import files",
-    "files.upload()",
-)
 COMMON_MARKDOWN_MARKERS = (
     f"**Notebook specification:** DIMER Notebook Specification {NOTEBOOK_SPEC} — **standalone** (§4)",
     "**Mode:** `",
@@ -213,8 +237,8 @@ COMMON_MARKDOWN_MARKERS = (
     "## Prerequisites",
     "Do not upload confidential or restricted",
     "- **External access:** the Hugging Face Hub",
-    "## 1. Install the pinned runtime",
-    "## 2. Pipeline code (carried verbatim from",
+    "## 1. Check the runtime",
+    "## 2. Carry the code and install the locked runtime",
     "## 3. Pin, stage and verify the model",
     "## Interpretation and limits",
     "Successful execution proves that the recorded repository revision",
@@ -227,7 +251,7 @@ FORBIDDEN_PATTERNS = (
     ("credential in clone URL", re.compile(r"https://[^/'\"\s]*@github\.com/|x-access-token:")),
     ("repository clone (ST1)", re.compile(r"\bgit\b[^\n]*\bclone\b|github\.com")),
     ("editable self-install", re.compile(r"""['"](?:-e|--editable)['"]|pip install (?:-e|--editable)\b""")),
-    ("repository package import (ST1)", re.compile(rf"^\s*(?:from|import)\s+{PACKAGE}\b", re.M)),
+    ("repository package import in the kernel (ST1)", re.compile(rf"^\s*(?:from|import)\s+{PACKAGE}\b", re.M)),
     ("mutable model reference (MOD14)", re.compile(r"revision\s*=\s*['\"](?:main|latest)['\"]")),
     ("trust_remote_code enabled", re.compile(r"trust_remote_code\s*[=:]\s*True")),
     (
@@ -241,7 +265,10 @@ FORBIDDEN_PATTERNS = (
     ),
     ("archive extractall", re.compile(r"\.extractall\s*\(")),
     ("notebook magic or shell escape", re.compile(r"(?m)^\s*[%!]|get_ipython\(\)")),
+    ("unhashed or source install", re.compile(r"--no-binary|--no-build-isolation|--trusted-host|--extra-index-url")),
 )
+# Checked on the carried files (package, runner, lock): everything above except the kernel-only package-import rule.
+CARRIED_FORBIDDEN = tuple(item for item in FORBIDDEN_PATTERNS if not item[0].startswith("repository package import"))
 
 
 class ValidationError(AssertionError):
@@ -400,6 +427,8 @@ def validate_release_status() -> None:
     )
 
 
+
+
 def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple[int, str, ast.Module]], str]:
     _check(notebook.get("nbformat") == 4, f"{path.name}: nbformat must be 4")
     dimer = notebook.get("metadata", {}).get("dimer")
@@ -411,27 +440,14 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
     _check(spec == NOTEBOOK_SPEC, f"{path.name}: metadata.dimer must declare notebook spec version '{NOTEBOOK_SPEC}'")
     _check(dimer.get("notebook_mode") in ("REFERENCE", "GUIDED", "WORKSHOP"), f"{path.name}: metadata.dimer.notebook_mode must declare a §3.3 pedagogical mode")
     _check(dimer.get("standalone") is True, f"{path.name}: metadata.dimer.standalone must be true (ST6)")
+    _check(dimer.get("requires_dimer_worker") is False, f"{path.name}: metadata.dimer.requires_dimer_worker must be false")
     generated = dimer.get("generated_from")
-    _template = _load_tool("notebook_template").TEMPLATE
     _check(isinstance(generated, dict), f"{path.name}: metadata.dimer.generated_from is required (ST5)")
     _check(generated.get("repository") == REPO_NAME, f"{path.name}: generated_from.repository must be {REPO_NAME}")
-    _check(
-        generated.get("module") == f"{_template.get('package_dir', f'src/{PACKAGE}')}/{_template.get('entry_module', 'pipeline.py')}",
-        f"{path.name}: generated_from.module must name the template entry module",
-    )
-    _pkg_dir = ROOT / _template.get("package_dir", f"src/{PACKAGE}")
-    _order = _load_tool("build_notebook")._module_order(_pkg_dir, list(_template.get("modules", ["pipeline.py"])))
-    module_sha = hashlib.sha256("".join(_read(_pkg_dir / m) for m in _order).encode("utf-8")).hexdigest()
-    _check(
-        generated.get("module_sha256") == module_sha,
-        f"{path.name}: generated_from.module_sha256 does not match src/ (PAR4: regenerate the notebook)",
-    )
+    _check(generated.get("module") == f"src/{PACKAGE}/pipeline.py", f"{path.name}: generated_from.module must name the package entry module")
     _check(bool(generated.get("generator")), f"{path.name}: generated_from.generator is required")
     cells = notebook.get("cells", [])
-    _check(
-        bool(cells) and cells[0].get("cell_type") == "markdown",
-        f"{path.name}: first cell must be markdown",
-    )
+    _check(bool(cells) and cells[0].get("cell_type") == "markdown", f"{path.name}: first cell must be markdown")
     code_cells: list[tuple[int, str, ast.Module]] = []
     markdown_parts: list[str] = []
     for index, cell in enumerate(cells):
@@ -442,10 +458,7 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
         _check(cell.get("cell_type") == "code", f"{path.name}: unexpected cell type at {index}")
         _check(cell.get("execution_count") is None, f"{path.name}: code cell {index} has execution_count")
         _check(not cell.get("outputs"), f"{path.name}: code cell {index} persists outputs")
-        _check(
-            index > 0 and cells[index - 1].get("cell_type") == "markdown",
-            f"{path.name}: code cell {index} lacks a preceding explanatory markdown cell",
-        )
+        _check(index > 0 and cells[index - 1].get("cell_type") == "markdown", f"{path.name}: code cell {index} lacks a preceding explanatory markdown cell")
         for line in source.splitlines():
             _check(not line.lstrip().startswith(("%", "!")), f"{path.name}: cell {index} uses a magic")
         try:
@@ -454,140 +467,196 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
             raise ValidationError(f"{path.name}: code cell {index} does not compile: {exc}") from exc
         code_cells.append((index, source, tree))
     markdown = "\n".join(markdown_parts)
-    raw_code = "\n".join(source for _, source, _ in code_cells)
-    _check(not PLACEHOLDER.search(raw_code + markdown), f"{path.name}: placeholder text found")
+    kernel = "\n".join(source for index, source, _ in code_cells if not _is_carrier(cells[index]))
+    _check(not PLACEHOLDER.search(kernel + markdown), f"{path.name}: placeholder text found")
     _check(not UNSUPPORTED_CLAIMS.search(markdown), f"{path.name}: unsupported release/benchmark claim")
     return code_cells, markdown
 
 
-def _validate_gates(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
-    for gate in BYOD_GATES:
-        assignments = []
-        for index, source, tree in code_cells:
-            lines = source.splitlines()
-            for node in ast.walk(tree):
-                if gate in _assignment_targets(node):
-                    line = lines[node.lineno - 1] if node.lineno - 1 < len(lines) else ""
-                    assignments.append((index, node, line))
-        _check(
-            len(assignments) == 1,
-            f"{path.name}: {gate} must be assigned exactly once, found {len(assignments)}",
-        )
+def _is_carrier(cell: dict) -> bool:
+    return bool(cell.get("metadata", {}).get("dimer", {}).get("embedded_sources"))
 
 
-def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
-    tagged = [c for c in notebook["cells"] if c.get("cell_type") == "code" and c.get("metadata", {}).get("dimer", {}).get("embedded_module")]
+def _literal(tree: ast.Module, name: str):
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise ValidationError(f"{name} is not assigned as a literal at the top level of its cell")
+
+
+def _validate_carrier(path: Path, notebook: dict, code_cells: list[tuple[int, str, ast.Module]], build) -> tuple[int, dict[str, str]]:
+    """PAR1/SRC4: one carrier cell; every carried file is the repository file and its CARRIED_HASHES entry is correct;
+    the cell verifies each written file against CARRIED_HASHES and stops on a mismatch."""
+    carriers = [(index, tree) for index, _source, tree in code_cells if _is_carrier(notebook["cells"][index])]
+    _check(len(carriers) == 1, f"{path.name}: exactly one carrier cell (metadata.dimer.embedded_sources) is expected, found {len(carriers)}")
+    index, tree = carriers[0]
+    files, hashes = _literal(tree, "CARRIED_FILES"), _literal(tree, "CARRIED_HASHES")
     template = _load_tool("notebook_template").TEMPLATE
     recorded = notebook["metadata"]["dimer"]["generated_from"]["revision"]
     ctx = build.load_context(ROOT, template, recorded)
-    _check(
-        [c["metadata"]["dimer"]["embedded_module"] for c in tagged] == ctx["module_rels"],
-        f"{path.name}: embedded module tag list != expected modules (PAR1)",
-    )
-    for cell, module in zip(tagged, ctx["modules"], strict=True):
-        rel = f"{ctx['pkg_rel']}/{module}"
-        _check(
-            cell["metadata"]["dimer"]["module_sha256"] == ctx["per_module_sha256"][rel],
-            f"{path.name}: embedded {rel} module_sha256 does not match src/ file (PAR1)",
-        )
-        drifted = f"{path.name}: embedded module cell for {rel} drifted from package source (PAR1)"
-        _check(_cell_source(cell).rstrip("\n") + "\n" == ctx["embedded"][module], drifted)
-    return [notebook["cells"].index(c) for c in tagged]
+    _check(files == ctx["files"], f"{path.name}: carried files differ from the repository sources (PAR1); regenerate the notebook")
+    for name, text in files.items():
+        _check(hashes.get(name) == hashlib.sha256(text.encode("utf-8")).hexdigest(), f"{path.name}: CARRIED_HASHES[{name!r}] is wrong (SRC4)")
+    _check(set(hashes) == set(files), f"{path.name}: CARRIED_HASHES and CARRIED_FILES name different files")
+    _check(notebook["cells"][index]["metadata"]["dimer"].get("files") == hashes, f"{path.name}: carrier metadata must record the carried hashes")
+    _check(notebook["metadata"]["dimer"]["generated_from"].get("files") == hashes, f"{path.name}: generated_from.files must record the carried hashes")
+    _check(notebook["metadata"]["dimer"]["generated_from"].get("module_sha256") == ctx["module_sha256"], f"{path.name}: generated_from.module_sha256 does not match src/ (PAR4)")
+    verifies = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For) and "CARRIED_FILES.items()" in ast.unparse(node.iter):
+            body = ast.unparse(node)
+            verifies = "CARRIED_HASHES[name]" in body and "raise RuntimeError(" in body and "hashlib.sha256(path.read_bytes())" in body
+    _check(verifies, f"{path.name}: the carrier must verify every written file against CARRIED_HASHES and raise on a mismatch (SRC4)")
+    runner = template["stage_runner"]
+    _check(files.get(runner) == _read(STAGE_RUNNER), f"{path.name}: the carried stage runner is not tools/tutorial_stages.py (PAR1)")
+    lock_source = ROOT / template["carried"][template["lock"]]
+    _check(files.get(template["lock"]) == _read(lock_source), f"{path.name}: the carried lock is not {lock_source.relative_to(ROOT).as_posix()} (PAR2)")
+    return index, files
 
 
-def _validate_identity(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], embedded: list[int], revision: str
-) -> None:
-    for index, _source, tree in code_cells:
-        if index in embedded:
+def _validate_lock(path: Path, files: dict[str, str], build) -> None:
+    """ENV1/ENV2: the carried lock pins every pyproject pin, hashes every entry, and was compiled wheel-only."""
+    template = _load_tool("notebook_template").TEMPLATE
+    lock = files[template["lock"]]
+    try:
+        build.check_lock(build._pins(ROOT), lock)
+    except SystemExit as exc:
+        raise ValidationError(f"{path.name}: {exc}") from exc
+    header = "\n".join(lock.splitlines()[:3])
+    _check("--generate-hashes" in header and "--only-binary :all:" in header, f"{path.name}: the lock must be compiled with --generate-hashes --only-binary :all:")
+    _check("--python-platform x86_64-manylinux" in header, f"{path.name}: the lock must target manylinux x86_64 (Colab/Kaggle)")
+
+
+def _validate_isolated_install(path: Path, code_cells: list[tuple[int, str, ast.Module]], carrier: int) -> None:
+    """RUN10/ENV6 (§25.13): nothing is pip-installed into the kernel; the only installer is the pinned uv, which installs
+    the lock with --require-hashes into a separate environment; run_stage re-raises a stage's own error message."""
+    template = _load_tool("notebook_template").TEMPLATE
+    uv = template["uv"]
+    install = [(index, source, tree) for index, source, tree in code_cells if source.startswith(INFRASTRUCTURE_TITLES["install"])]
+    _check(len(install) == 1, f"{path.name}: exactly one isolated-install cell is expected")
+    install_index, source, tree = install[0]
+    _check(_literal(tree, "UV_URL") == uv["url"] and uv["url"].startswith("https://files.pythonhosted.org/"), f"{path.name}: UV_URL must be the pinned PyPI wheel")
+    _check(_literal(tree, "UV_BYTES") == uv["bytes"], f"{path.name}: UV_BYTES must be the pinned wheel size")
+    _check(SHA64.match(str(_literal(tree, "UV_SHA256"))) is not None and _literal(tree, "UV_SHA256") == uv["sha256"], f"{path.name}: UV_SHA256 must pin the uv wheel (64-hex)")
+    run_stage = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run_stage"]
+    _check(len(run_stage) == 1, f"{path.name}: the install cell must define run_stage")
+    _check("raise RuntimeError(" in ast.unparse(run_stage[0]) and "error_file" in ast.unparse(run_stage[0]), f"{path.name}: run_stage must re-raise the stage's error message")
+    for index, cell_source, cell_tree in code_cells:
+        if index == carrier:
+            continue
+        stripped = _strip_comments(cell_source)
+        leaked = [marker for marker in FORBIDDEN_IN_KERNEL if marker in stripped]
+        _check(not leaked, f"{path.name}: cell {index} does kernel-side work that belongs in the isolated environment: {leaked}")
+        for node in ast.walk(cell_tree):
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+                bad = [n for n in names if n not in ALLOWED_KERNEL_IMPORTS]
+                _check(not bad, f"{path.name}: cell {index} imports {bad} into the kernel; only the standard library, IPython.display and google.colab are allowed")
+            if isinstance(node, ast.List) and any(isinstance(e, ast.Constant) and e.value == "pip" for e in node.elts):
+                call = ast.unparse(node)
+                _check(
+                    call.startswith("[str(UV), 'pip', 'install', '--python', str(PYTHON), '--require-hashes'"),
+                    f"{path.name}: cell {index} runs pip other than `uv pip install --python <isolated env> --require-hashes`: {call[:80]}",
+                )
+            if isinstance(node, ast.Name) and node.id == "urllib" and index != install_index:
+                raise ValidationError(f"{path.name}: cell {index} downloads outside the isolated-install cell")
+
+
+def _validate_identity(path: Path, code_cells: list[tuple[int, str, ast.Module]], carrier: int, revision: str) -> None:
+    for index, source, tree in code_cells:
+        if index == carrier:
             continue
         for node in ast.walk(tree):
             rebound = [name for name in _assignment_targets(node) if name in IDENTITY_NAMES]
-            _check(not rebound, f"{path.name}: {rebound} must not be rebound outside the module cell (cell {index})")
-    outside = "\n".join(source for index, source, _ in code_cells if index not in embedded)
-    manifest_block = re.search(r"^MANIFEST = (\{.*?^\})$", outside, re.M | re.S)
-    _check(manifest_block is not None, f"{path.name}: model cell must carry an inline MANIFEST literal (ST3)")
-    outside_without_manifest = outside.replace(manifest_block.group(0), "")
-    _check(
-        revision not in outside_without_manifest,
-        f"{path.name}: the model revision may appear only in the carried module and the inline manifest",
-    )
+            _check(not rebound, f"{path.name}: {rebound} must not be rebound outside the carried package (cell {index})")
+        _check(revision not in source, f"{path.name}: the model revision may appear only in the carried package and manifests (cell {index})")
 
 
-def _validate_parity(path: Path, notebook: dict, code_cells: list[tuple[int, str, ast.Module]], build) -> None:
+def _validate_parity(path: Path, notebook: dict, build) -> None:
     template = _load_tool("notebook_template").TEMPLATE
-    code = "\n".join(source for _, source, _ in code_cells)
-    manifest = json.loads(_read(ROOT / "weights" / template["weights_key"] / "dimer-base-manifest.json"))
-    inline = re.search(r"^MANIFEST = (\{.*?^\})$", code, re.M | re.S)
-    _check(inline is not None and json.loads(inline.group(1)) == manifest, f"{path.name}: inline MANIFEST != committed manifest (PAR2)")
-    pins_block = re.search(r"^PINS = \[(.*?)^\]", code, re.M | re.S)
-    _check(pins_block is not None, f"{path.name}: install cell must carry PINS = [...] (ENV2)")
-    _check(re.findall(r"'([^']+)'", pins_block.group(1)) == build._pins(ROOT), f"{path.name}: inline PINS != pyproject runtime pins (PAR2)")
     recorded = notebook["metadata"]["dimer"]["generated_from"]["revision"]
     rendered = build.to_bytes(build.render(ROOT, template, recorded))
     current = path.read_bytes().replace(b"\r\n", b"\n")
     _check(current == rendered, f"{path.name}: differs from tools/build_notebook.py output (PAR3); regenerate")
 
 
-def _validate_bootstrap_guard(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
-    raises = False
-    for _, _, tree in code_cells:
-        for node in ast.walk(tree):
-            if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "stale":
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Raise) and isinstance(sub.exc, ast.Call):
-                        func = sub.exc.func
-                        if isinstance(func, ast.Name) and func.id == "RuntimeError":
-                            raises = True
-    _check(raises, f"{path.name}: install cell must raise RuntimeError when already-imported packages change")
-
-
-def _validate_notebook_content(
-    path: Path, code_cells: list[tuple[int, str, ast.Module]], markdown: str, embedded: list[int]
-) -> None:
+def _validate_notebook_content(path: Path, notebook: dict, code_cells: list[tuple[int, str, ast.Module]], markdown: str, carrier: int, files: dict[str, str]) -> None:
     model_id, _revision = _package_identity()
-    stripped = {index: _strip_comments(source) for index, source, _ in code_cells}
-    code = "\n".join(stripped.values())
-    outside = "\n".join(text for index, text in stripped.items() if index not in embedded)
-    missing = [marker for marker in COMMON_CODE_MARKERS + CODE_MARKERS if marker not in code]
-    _check(not missing, f"{path.name}: missing required source markers: {missing}")
-    present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]
-    _check(not present, f"{path.name}: forbidden/insecure source: {present}")
-    leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in outside]
-    _check(not leaked, f"{path.name}: direct library use outside the carried module cell (G2): {leaked}")
-    _check(
-        f"pipe = {MODEL_LOAD_EXPR}" in outside,
-        f"{path.name}: must load through {MODEL_LOAD_EXPR} (INF1)",
-    )
+    kernel_cells = [(index, source) for index, source, _ in code_cells if index != carrier]
+    kernel = "\n".join(_strip_comments(source) for _, source in kernel_cells)
+    carrier_source = next(source for index, source, _ in code_cells if index == carrier)
+    missing = [marker for marker in KERNEL_CODE_MARKERS if marker not in kernel + "\n" + carrier_source]
+    _check(not missing, f"{path.name}: missing required kernel-code markers: {missing}")
+    for title in INFRASTRUCTURE_TITLES.values():
+        _check(sum(source.startswith(title) for _, source, _ in code_cells) == 1, f"{path.name}: expected exactly one cell titled {title!r}")
+    positions = []
+    for call in STAGE_CALLS:
+        hits = [index for index, source in kernel_cells if call in source]
+        _check(len(hits) == 1, f"{path.name}: expected exactly one `{call}`, found {len(hits)}")
+        positions.append(hits[0])
+    _check(positions == sorted(positions), f"{path.name}: the stages must run in order {[c.split(chr(39))[1] for c in STAGE_CALLS]} (RUN1)")
+    byod_cells = [source for _, source in kernel_cells if all(line in source.splitlines() for line in BYOD_FIELD_LINES)]
+    _check(len(byod_cells) == 1, f"{path.name}: one learner cell must hold both BYOD form fields exactly: {BYOD_FIELD_LINES} (EXE1/EXE2)")
+    _check("run_stage('prepare', *prepare_options)" in byod_cells[0], f"{path.name}: the BYOD fields must drive the prepare stage in the same cell")
+    for label, pattern in FORBIDDEN_PATTERNS:
+        _check(not pattern.search(kernel), f"{path.name}: forbidden/insecure kernel source: {label}")
+    for name, text in files.items():
+        present = [label for label, pattern in CARRIED_FORBIDDEN if pattern.search(text)]
+        _check(not present, f"{path.name}: forbidden/insecure source in carried {name}: {present}")
+    runner = files[_load_tool("notebook_template").TEMPLATE["stage_runner"]]
+    missing = [marker for marker in RUNNER_MARKERS if marker not in runner]
+    _check(not missing, f"{path.name}: the carried stage runner is missing required markers: {missing}")
+    missing = [name for name in EXPECTED_OUTPUTS if name not in runner]
+    _check(not missing, f"{path.name}: the stage runner must export {missing}")
     _validate_gates(path, code_cells)
-    _validate_bootstrap_guard(path, code_cells)
-    for filename in EXPECTED_OUTPUTS:
-        _check(filename in code, f"{path.name}: must export {filename}")
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
     _check(not missing_md, f"{path.name}: missing learner-facing markers: {missing_md}")
+    _check("restart" not in markdown.lower().replace("no runtime restart", "").replace("no restart", ""), f"{path.name}: learner prose must not instruct a runtime restart (RUN10)")
     _check(f"**Profile:** `{EXPECTED_PROFILE}`" in markdown, f"{path.name}: markdown must state the profile")
+    _check(f"https://huggingface.co/{model_id}" in markdown, f"{path.name}: references must link {model_id}")
+
+
+def _validate_gates(path: Path, code_cells: list[tuple[int, str, ast.Module]]) -> None:
+    for gate in BYOD_GATES:
+        assignments = []
+        for index, _source, tree in code_cells:
+            for node in ast.walk(tree):
+                if gate in _assignment_targets(node):
+                    assignments.append((index, node))
+        _check(len(assignments) == 1, f"{path.name}: {gate} must be assigned exactly once, found {len(assignments)}")
+
+
+def _validate_guided_layer(path: Path, notebook: dict, markdown: str) -> None:
+    """GDL1–GDL15 (§3.5): orientation, predictions, checkpoints, an optional activity, collapsed infrastructure."""
     missing_gdl = [f"{gdl}: {marker}" for gdl, marker in GUIDED_MARKERS if marker not in markdown]
     _check(not missing_gdl, f"{path.name}: missing guided-layer markers (NOTEBOOK_SPEC 2.2 §3.5): {missing_gdl}")
     _check(markdown.count("**Predict before running:**") >= MIN_PREDICTIONS, f"{path.name}: at least {MIN_PREDICTIONS} predictions expected (GDL7)")
     _check(markdown.count("Check your reasoning") >= MIN_CHECKPOINTS, f"{path.name}: at least {MIN_CHECKPOINTS} Check your reasoning boxes expected (GDL9)")
+    _check(markdown.count("<details>") == markdown.count("</details>"), f"{path.name}: unbalanced <details> blocks")
+    untagged = [line for line in markdown.splitlines() if re.match(r"^## \d+\. ", line) and not line.rstrip().endswith(SECTION_TAGS)]
+    _check(not untagged, f"{path.name}: numbered sections must end with a section tag {SECTION_TAGS} (GDL12): {untagged}")
     _check(re.search(r"\bworkshop\b", markdown, re.I) is None, f"{path.name}: learner prose must call the artifact a notebook, not a workshop (GDL15)")
-    _check(f"https://huggingface.co/{model_id}" in markdown, f"{path.name}: references must link {model_id}")
-
-
-def _validate_infrastructure_cells(path: Path, notebook: dict, embedded: list[int]) -> None:
-    """GDL11: generated setup cells are titled Infrastructure and collapsed; learner-facing stage cells are not."""
-    titled = []
-    for index, cell in enumerate(notebook["cells"]):
+    cells = notebook["cells"]
+    activity = reload_cell = None
+    for index, cell in enumerate(cells):
         if cell.get("cell_type") != "code":
             continue
         source = _cell_source(cell)
-        is_infra = index in embedded or source.startswith("# @title Infrastructure:")
-        collapsed = cell.get("metadata", {}).get("cellView") == "form" and cell.get("metadata", {}).get("jupyter", {}).get("source_hidden") is True
-        if is_infra:
-            _check(collapsed, f"{path.name}: infrastructure cell {index} must be collapsed (cellView form, source_hidden) (GDL11)")
-        if source.startswith("# @title Infrastructure:"):
-            titled.append(index)
-    _check(len(titled) >= 2, f"{path.name}: the install and model cells must be titled '# @title Infrastructure: ...' (GDL11)")
+        meta = cell.get("metadata", {})
+        infrastructure = source.startswith("# @title Infrastructure: ")
+        collapsed = meta.get("cellView") == "form" and meta.get("jupyter", {}).get("source_hidden") is True
+        if infrastructure or _is_carrier(cell):
+            _check(collapsed and infrastructure, f"{path.name}: infrastructure cell {index} must be titled '# @title Infrastructure: …' and collapsed (GDL11)")
+        else:
+            _check(not collapsed, f"{path.name}: learner cell {index} must not be collapsed")
+        if "RUN_ACTIVITY = True" in source:
+            activity = index
+        if "run_stage('reload')" in source:
+            reload_cell = index
+    # This repository's activity runs on the default path (RUN_ACTIVITY = True), after every required output is written.
+    _check(activity is not None, f"{path.name}: the optional activity must be declared by a RUN_ACTIVITY form field (GDL10)")
+    _check(reload_cell is not None and activity > reload_cell, f"{path.name}: the optional activity must come after the canonical path's last stage (GDL10)")
+    _check("if RUN_ACTIVITY:" in _cell_source(cells[activity]), f"{path.name}: the activity must be gated by `if RUN_ACTIVITY:`")
 
 
 def validate_notebooks() -> None:
@@ -599,20 +668,20 @@ def validate_notebooks() -> None:
     build = _load_tool("build_notebook")
     notebook = json.loads(_read(path))
     code_cells, markdown = _validate_notebook_structure(path, notebook)
-    embedded = _validate_embedded_modules(path, notebook, build)
+    carrier, files = _validate_carrier(path, notebook, code_cells, build)
+    _validate_lock(path, files, build)
+    _validate_isolated_install(path, code_cells, carrier)
     _model_id, revision = _package_identity()
-    _validate_identity(path, code_cells, embedded, revision)
-    _validate_parity(path, notebook, code_cells, build)
-    _validate_notebook_content(path, code_cells, markdown, embedded)
-    _validate_infrastructure_cells(path, notebook, embedded)
+    _validate_identity(path, code_cells, carrier, revision)
+    _validate_parity(path, notebook, build)
+    _validate_notebook_content(path, notebook, code_cells, markdown, carrier, files)
+    _validate_guided_layer(path, notebook, markdown)
     registry = _read(tutorials / "README.md")
     _check(f"`{path.name}`" in registry, f"{path.name} missing from tutorials/README.md")
     _check(f"`{EXPECTED_PROFILE}`" in registry, f"tutorials/README.md must record `{EXPECTED_PROFILE}`")
-    _check(
-        f"DIMER Notebook Specification {NOTEBOOK_SPEC}" in registry,
-        "tutorials/README.md must name the notebook spec version",
-    )
+    _check(f"DIMER Notebook Specification {NOTEBOOK_SPEC}" in registry, "tutorials/README.md must name the notebook spec version")
     _check("standalone" in registry.lower(), "tutorials/README.md must record that the notebook is standalone")
+    _check("isolated" in registry.lower(), "tutorials/README.md must describe the isolated environment")
 
 
 def validate_all() -> list[str]:
@@ -620,7 +689,7 @@ def validate_all() -> list[str]:
     validate_identity_consistency()
     validate_release_status()
     validate_notebooks()
-    return ["model-card", "identity-consistency", "release-status", "notebook+parity"]
+    return ["model-card", "identity-consistency", "release-status", "notebook+carrier+lock+parity"]
 
 
 def main() -> int:
