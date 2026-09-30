@@ -120,7 +120,7 @@ Masks and captions are instruments too. The sample has no hand-drawn masks, so e
 
 **Operating environment.** Python 3.12 with the pinned packages `torch==2.14.0`, `diffusers==0.40.0`, `transformers==5.17.0`, `peft==0.21.0`, `accelerate==1.15.0`, `safetensors==0.8.0`, `huggingface-hub==1.32.0`, `numpy==2.5.3` and `pillow==11.3.0`. On CUDA the UNet, MoVQ and prior run in float16. The LoRA tensors stay in float32, and training uses float16 autocast with `torch.amp.GradScaler`.
 
-The tutorial notebook does not install these packages into its kernel: it builds a separate CPython 3.12.12 environment with a pinned `uv` from `tutorials/requirements-colab.lock.txt`, which locks those pins and all their dependencies to exact versions and SHA-256 digests for Linux x86_64 (the Linux `torch` 2.14.0 wheel is the CUDA 13.0 build), and runs each stage in its own process there. The tutorial targets a Linux x86_64 runtime with a CUDA GPU of at least 15 GB of memory, such as a 16 GB T4, and about 30 GB of free disk: the 16.47 GB of pinned weights and about 12 GB for the isolated environment. No run of the isolated-environment notebook on that hardware has been recorded yet. On CPU the code runs in float32 but is impractically slow for the tutorial.
+The tutorial notebook does not install these packages into its kernel: it builds a separate CPython 3.12.12 environment with a pinned `uv` from `tutorials/requirements-colab.lock.txt`, which locks those pins and all their dependencies to exact versions and SHA-256 digests for Linux x86_64 (the Linux `torch` 2.14.0 wheel is the CUDA 13.0 build), and runs each stage in its own process there. The tutorial targets a Linux x86_64 runtime with a CUDA GPU of at least 15 GB of memory, such as a 16 GB T4, and about 30 GB of free disk: the 16.47 GB of pinned weights and about 12 GB for the isolated environment. The notebook ran on a Colab T4 and a Kaggle T4 on 2026-09-29 and 2026-09-30 (see *Verification records*). On CPU the code runs in float32 but is impractically slow for the tutorial.
 
 **Data environment.** Adaptation assumes that the photographs the adapter is trained on resemble the photographs the user later wants to edit. That means the same kind of subject, framing and photographic style, with masks of a similar shape and size. Captions at inference time should follow the pattern of the training captions. Masks or subjects far from the adaptation data move the output back towards the base model's behaviour. Held-out denoising loss is meaningful only when the validation photographs come from the same distribution as the training photographs.
 
@@ -262,7 +262,18 @@ The following uses are unacceptable even where the pipeline would work:
 
 ## Verification records
 
-`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The records below are of the **previous** notebook revision, which installed its pins into the kernel; the current notebook runs the same stages in an isolated hash-locked environment and has not yet been run on hardware. The clean-runtime run of the previous tutorial notebook:
+`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The current notebook, which runs every stage in an isolated hash-locked environment, was run three times at commit `507e06d`:
+
+- **Date:** 2026-09-30
+- **Subject:** `tutorials/kandinsky_inpainting_colab.ipynb` at commit `507e06d`, blob `447723996da8`
+- **Runtime:** Google Colab, Tesla T4 (15,360 MiB); the notebook kernel ran Python 3.13.15, and the isolated environment ran Python 3.12.12 with `torch 2.14.0+cu130`, `diffusers 0.40.0`, `transformers 5.17.0` and `peft 0.21.0`
+- **Procedure:** `Run all` from a fresh runtime with the form fields at their defaults
+- **Observed result:** 11 of 11 code cells ran in one pass without error or restart. Held-out test `denoising_mse` was 0.028245 for the frozen model and 0.027998 after adaptation. Kept-region PSNR rose from 25.30 to 25.61 dB and SSIM from 0.9379 to 0.9421. A reload in a fresh process gave the same denoising loss and a `mean_abs_pixel_diff` of 0.0766 on the 0–255 scale, inside the asserted tolerance of 1.0.
+- **Caveats:** one run on one seeded split. This is sample-sanity evidence, not a benchmark.
+
+The same commit also passed a Kaggle T4 run in strict single-pass mode (a restart request fails the run), with the same results, and the BYOD journey: 12 representative photographs, 6 with their own masks, were carried through every stage, and a `captions.csv` without its `caption` column, a 200 × 200 image and a mask whose size differed from its photograph were each refused with the validator's message.
+
+`docs/release-verification.md` also keeps the records of the **previous** notebook revision, which installed its pins into the kernel and needed a manual restart on hosted runtimes. The clean-runtime run of that previous notebook:
 
 - **Date:** 2026-09-29
 - **Subject:** `tutorials/kandinsky_inpainting_colab.ipynb` at commit `6fd3ab4`, blob `c8930286cd79` (full identifiers in `docs/release-verification.md`)
