@@ -1,6 +1,17 @@
 """Kandinsky 2.2 inpainting pipeline package."""
 
-from .metrics import ClipScorer, compute_psnr, compute_ssim, score_generations, score_inpainting_preservation
+from .metrics import (
+    REAL_PHOTO_REFERENCE_KIND,
+    REAL_PHOTO_REFERENCE_READING,
+    ClipScorer,
+    compute_psnr,
+    compute_ssim,
+    count_above_reference,
+    real_photo_baseline,
+    real_photo_reference,
+    score_generations,
+    score_inpainting_preservation,
+)
 from .pipeline import (
     ARTIFACT_FORMAT,
     ARTIFACT_FORMAT_VERSION,
@@ -74,6 +85,7 @@ from .samples import (
     fetch_corpus,
     fetch_sample_dataset,
     load_byod_dataset,
+    near_duplicate_pairs,
     read_corpus,
     sample_prompts,
     split_dataset,
@@ -114,6 +126,8 @@ __all__ = [
     "PRIOR_ID",
     "PRIOR_KEY",
     "PRIOR_REVISION",
+    "REAL_PHOTO_REFERENCE_KIND",
+    "REAL_PHOTO_REFERENCE_READING",
     "RESOLUTION",
     "SAMPLE_RECORDS",
     "SAMPLE_SPLIT",
@@ -130,6 +144,7 @@ __all__ = [
     "check_split_disjoint",
     "compute_psnr",
     "compute_ssim",
+    "count_above_reference",
     "create_center_mask",
     "dataset_digest",
     "dataset_manifest",
@@ -138,10 +153,13 @@ __all__ = [
     "image_digest",
     "load_byod_dataset",
     "lora_parameter_names",
+    "near_duplicate_pairs",
     "preprocess_image",
     "preprocess_image_and_mask",
     "prompt_seed",
     "read_corpus",
+    "real_photo_baseline",
+    "real_photo_reference",
     "sample_prompts",
     "score_generations",
     "score_inpainting_preservation",

@@ -27,6 +27,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .pipeline import MIN_TRAIN_RECORDS, MODEL_ID, image_digest, validate_dataset
 
 CORPUS_NAME = "iNaturalist CC0 bird photographs (six species, 10 each)"
@@ -793,8 +795,19 @@ def split_dataset(
     test_fraction: float = 0.2,
     seed: int = 0,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Seeded shuffle of a BYOD dataset into train/validation/test, grouped by caption, after de-duplicating
-    images. Every caption keeps at least one test record when it has three or more images."""
+    """Seeded split of a BYOD dataset into train/validation/test, STRATIFIED WITHIN EACH CAPTION (every caption with
+    three or more images appears in all three sets, so the test measures new photographs of seen captions, not unseen
+    captions), after removing pixel-identical images.
+
+    Per caption, a pool of n >= 3 distinct images gives max(1, round(n * test_fraction)) test and
+    round(n * val_fraction) validation images -- one each for 3..7 images at the default 20 % / 20 % -- and the rest
+    to training; a caption with one or two images goes to training only. The split needs at least one test image and
+    at least MIN_TRAIN_RECORDS training images, so the smallest accepted dataset is six distinct images (for example six
+    of one caption, or four of each of two captions); two captions of three images each are refused.
+
+    A random split assumes the photographs are independent: near-duplicates (bursts, crops or edits of one scene) are
+    not removed, and if they land on both sides the held-out numbers are optimistic. `near_duplicate_pairs` reports
+    them; remove them, or keep one."""
     if not (0.0 <= val_fraction < 1.0 and 0.0 < test_fraction < 1.0 and val_fraction + test_fraction < 1.0):
         raise ValueError("fractions must satisfy 0 <= val < 1, 0 < test < 1, val + test < 1")
     checked = validate_dataset(records)["records"]
@@ -818,10 +831,50 @@ def split_dataset(
     for part in splits.values():
         rng.shuffle(part)
     if len(splits["train"]) < MIN_TRAIN_RECORDS:
-        raise ValueError(f"split leaves {len(splits['train'])} training records; at least {MIN_TRAIN_RECORDS} are required")
+        raise ValueError(
+            f"split leaves {len(splits['train'])} training records; at least {MIN_TRAIN_RECORDS} are required. Each caption "
+            "with 3..7 distinct images gives one test and one validation image (about 20 % each from 8 on) and a caption with "
+            "1..2 images goes to training only, so at least 6 distinct images are needed, for example six of one caption or "
+            "four of each of two captions"
+        )
     if not splits["test"]:
         raise ValueError("split leaves no test record; give at least one caption three or more images")
     return splits
+
+
+NEAR_DUPLICATE_SIZE = 16
+NEAR_DUPLICATE_THRESHOLD = 0.95
+
+
+def _thumbnail_vector(image: Any) -> np.ndarray:
+    """A zero-mean, unit-norm 16 x 16 greyscale thumbnail: robust to re-encoding, a few edited pixels or a small shift."""
+    small = np.asarray(image.convert("L").resize((NEAR_DUPLICATE_SIZE, NEAR_DUPLICATE_SIZE)), dtype=np.float64).ravel()
+    small = small - small.mean()
+    norm = float(np.sqrt((small * small).sum()))
+    return small / norm if norm > 0 else small
+
+
+def near_duplicate_pairs(
+    splits: Mapping[str, Sequence[Mapping[str, Any]]], *, threshold: float = NEAR_DUPLICATE_THRESHOLD
+) -> list[dict[str, Any]]:
+    """Pairs of records in DIFFERENT splits whose 16 x 16 greyscale thumbnails correlate at `threshold` or more.
+
+    Reported, not removed: `split_dataset` only drops pixel-identical copies, so a burst shot, a crop or a lightly
+    edited copy of one scene can sit in training while its near-copy is held out, which makes the held-out numbers
+    optimistic. The correlation is computed without matrix multiplication (elementwise products only)."""
+    entries = [(name, record) for name in splits for record in splits[name]]
+    if len(entries) < 2:
+        return []
+    vectors = np.stack([_thumbnail_vector(record["image"]) for _, record in entries])
+    pairs: list[dict[str, Any]] = []
+    for i, (split_a, record_a) in enumerate(entries[:-1]):
+        correlations = (vectors[i + 1 :] * vectors[i]).sum(axis=1)
+        for offset in np.flatnonzero(correlations >= threshold):
+            split_b, record_b = entries[i + 1 + int(offset)]
+            if split_b != split_a:
+                pair = {"a": record_a["id"], "a_split": split_a, "b": record_b["id"], "b_split": split_b}
+                pairs.append({**pair, "correlation": round(float(correlations[offset]), 4)})
+    return pairs
 
 
 BYOD_COLUMNS = ("id", "file", "caption")

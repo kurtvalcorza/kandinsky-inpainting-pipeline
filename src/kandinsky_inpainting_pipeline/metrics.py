@@ -149,3 +149,41 @@ def score_generations(scorer: ClipScorer, images: list[Image.Image], prompts: li
         "mean_prompt_similarity": float(np.mean(sims)),
         "prompt_similarities": sims,
     }
+
+
+REAL_PHOTO_REFERENCE_KIND = "original-photograph reference (per image, own caption only; not a ceiling)"
+REAL_PHOTO_REFERENCE_READING = {
+    "mean_prompt_similarity": (
+        "not an upper bound: a model that repaints the masked region to match the caption can match the caption more "
+        "closely than the original photograph, which only has to contain the subject, so outputs can score above it"
+    ),
+}
+
+
+def real_photo_reference(scorer: ClipScorer, images: list[Image.Image], prompts: list[str]) -> dict[str, Any]:
+    """CLIP prompt similarity of the original, unmasked photographs against their own captions: a reference line, NOT a
+    ceiling.
+
+    Each photograph is scored only against its own caption, exactly as an output is, so there is no reference set and no
+    photograph is ever compared with itself (the leave-one-out condition holds trivially; contrast the generation
+    siblings, whose reference similarity needs the photo excluded from its own reference mean). Outputs can score above
+    this line (see `REAL_PHOTO_REFERENCE_READING`)."""
+    report = score_generations(scorer, images, prompts)
+    report["n_images"] = len(images)
+    report["reference_kind"] = REAL_PHOTO_REFERENCE_KIND
+    report["reading"] = dict(REAL_PHOTO_REFERENCE_READING)
+    report["note"] = (
+        "original photographs scored against their own captions only (no reference set, no self-comparison). A reference "
+        "line, not a ceiling: inpainted outputs can score above it"
+    )
+    return report
+
+
+# The name the generation siblings used; kept so callers written against them get this measure.
+real_photo_baseline = real_photo_reference
+
+
+def count_above_reference(scores: list[float], reference: list[float]) -> dict[str, Any]:
+    """How many outputs score above their own original photograph (paired per image)."""
+    above = sum(float(s) > float(r) for s, r in zip(scores, reference, strict=True))
+    return {"n_above": int(above), "n": len(reference), "text": f"{above} of {len(reference)}"}

@@ -271,7 +271,7 @@ def test_cpu_preflight_runs_every_stage_through_files(preflight, capsys) -> None
         "mean_unmasked_ssim",
         "clip_prompt_similarity",
     }
-    assert set(report["comparison"]["clip_prompt_similarity"]) == {"mean_fill_floor", "frozen", "adapted", "original_photo_ceiling"}
+    assert set(report["comparison"]["clip_prompt_similarity"]) == {"mean_fill_floor", "frozen", "adapted", "original_photo_reference"}
     assert report["adapted"]["loaded_from"] == "exported artifact, fresh process"
     # 640 x 480 synthetic photographs: the centre mask covers a third of the 512 x 512 centre crop
     assert 0.3 < json.loads((out / "prepare.json").read_text(encoding="utf-8"))["repaint_fraction"] < 0.35
