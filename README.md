@@ -71,8 +71,11 @@ regenerate the notebook whenever a pin changes.
 
 ## Release status
 
-**Release-grade** — the tutorial notebook runs in an isolated hash-locked environment and passed `Run all` in one pass on Google Colab and on a strict Kaggle T4 run, plus the REL12 BYOD
-journey, at `507e06d`; see `docs/release-verification.md` and `STATUS.md`.
+**Candidate** — the tutorial notebook was regenerated after the 2026-10-02 notebook review (explanations, the
+original-photograph reference, the BYOD minimum and small printed outputs changed), so the hosted records belong to its
+previous revision. That revision runs in an isolated hash-locked environment and passed `Run all` in one pass on Google
+Colab and on a strict Kaggle T4 run, plus the REL12 BYOD journey, at `507e06d`. A hosted `Run all` of the current
+notebook revision is needed before it is promoted again. See `docs/release-verification.md` and `STATUS.md`.
 
 ## License
 

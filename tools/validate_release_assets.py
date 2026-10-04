@@ -132,7 +132,13 @@ RUNNER_MARKERS = (
     "frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)",
     "frozen_clip = score_generations(scorer, frozen_images, test_prompts)",
     "fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks, strict=True)], test_prompts)",
-    "real_clip = score_generations(scorer, test_images, test_prompts)",
+    # KIP-m1: the original photographs are a reference line, not a ceiling; outputs above their own original are counted
+    "real_clip = real_photo_reference(scorer, test_images, test_prompts)",
+    '"clip_above_own_original_photograph": above_original,',
+    # KIP-m2: near-duplicates across splits are reported
+    'near_duplicates = near_duplicate_pairs({"train": train_records, "validation": val_records, "test": test_records})',
+    # KIP-m3: a one-photograph BYOD test set still gives the two new-caption outputs Section 9 shows
+    'new_records = [{**test_records[i % len(test_records)], "caption": NEW_PROMPT} for i in range(2)]',
     "adapt_result = pipe.adapt(",
     "lr=opts.lr",
     "batch_size=opts.batch_size",
@@ -173,13 +179,33 @@ MARKDOWN_MARKERS = (
     "denoising loss",
     "preservation",
     "mean-fill floor",
-    "original-photograph ceiling",
+    "original-photograph reference",
+    "a reference line, not a ceiling",
+    "**The split assumes independent photographs.**",
+    "stratified within each caption",
+    "`near_duplicates_across_splits`",
+    "at least **6 distinct photographs**",
+    "`split leaves N training records`",
+    "904.7 s",
     "not a human judgement",
     "Apache-2.0",
     "sample-sanity",
     "CC0",
     "Nothing is installed into the notebook kernel",
     "--require-hashes",
+)
+# Learner-facing text the 2026-10-02 review fixes removed; it must not come back (KIP-m1 the "between floor and ceiling"
+# framing, KIP-m2 the split wording, KIP-m3 the wrong BYOD minimum, KIP-m4 the unrecorded run time).
+STALE_MARKDOWN = (
+    "original-photograph ceiling",
+    "between the floor and the ceiling",
+    "little room for CLIP to rise",
+    "split by caption",
+    "grouped by caption",
+    "at least four photographs",
+    "at least four training photographs",
+    "has been recorded yet",
+    "not yet recorded",
 )
 # Direct model-library use that must stay inside the carried files (G2): the kernel imports no model library at all.
 FORBIDDEN_IN_KERNEL = (
@@ -611,6 +637,11 @@ def _validate_notebook_content(path: Path, notebook: dict, code_cells: list[tupl
     _validate_gates(path, code_cells)
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
     _check(not missing_md, f"{path.name}: missing learner-facing markers: {missing_md}")
+    stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
+    _check(not stale, f"{path.name}: learner prose the review fixes removed is back: {stale}")
+    # KIP-m1: "ceiling" is used only to say the original photographs are NOT one.
+    loose = [m.start() for m in re.finditer(r"\bceiling", markdown, re.I) if not markdown[: m.start()].endswith("not a ")]
+    _check(not loose, f"{path.name}: markdown calls something a ceiling ({len(loose)} place(s)); the original photograph is a reference line, not a ceiling (KIP-m1)")
     _check("restart" not in markdown.lower().replace("no runtime restart", "").replace("no restart", ""), f"{path.name}: learner prose must not instruct a runtime restart (RUN10)")
     _check(f"**Profile:** `{EXPECTED_PROFILE}`" in markdown, f"{path.name}: markdown must state the profile")
     _check(f"https://huggingface.co/{model_id}" in markdown, f"{path.name}: references must link {model_id}")

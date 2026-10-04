@@ -38,7 +38,8 @@ CI runs `ruff check src tests tools`, the offline unit suite (`pytest`), `tools/
   `validate_dataset` attaching the masks and the four refusal probes (including a mask whose size differs from its
   photograph), `dataset_manifest`, `write_dataset_csv`, the dataset-digest re-check, `encode_prompts`,
   `release_prior` and the prompt cache, the frozen `evaluate`, `generate`, `score_inpainting_preservation` and
-  `score_generations` with the mean-fill floor and the original-photograph ceiling, `pipe.adapt` with its explicit
+  `score_generations` with the mean-fill floor and `real_photo_reference` (the original-photograph reference, not a
+  ceiling) with the per-image count of outputs above it, `near_duplicate_pairs`, `pipe.adapt` with its explicit
   hyperparameters, the in-memory reference values, `save_artifact`, the fresh-process `from_artifact` evaluation
   with the two guaranteed checks, the second fresh-process reload with the parity check, the new-caption inference,
   the mask-size activity, the provenance fields `safetensors_only: True`, `remote_code_executed: False` and the data
@@ -124,7 +125,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
 
 ## Recorded executions
 
-The first three rows record the current notebook, which runs every stage in an isolated hash-locked environment, at `507e06d`. The rows after them record the previous notebook, which pip-installed its pins into the kernel and needed a manual restart on hosted runtimes; they remain evidence for the stage logic both revisions share. The CPU row is a pre-flight run, which is not promotion evidence.
+The first three rows record the previous revision of the notebook (blob `447723996da8`), which ran the same stages in an isolated hash-locked environment, at `507e06d`; the current revision was regenerated after the 2026-10-02 review and has no hosted record yet. The rows after them record the previous notebook, which pip-installed its pins into the kernel and needed a manual restart on hosted runtimes; they remain evidence for the stage logic both revisions share. The CPU row is a pre-flight run, which is not promotion evidence.
 
 | Date (UTC) | Subject | Runtime | Procedure | Observed result | Caveats |
 |---|---|---|---|---|---|
@@ -137,4 +138,4 @@ The first three rows record the current notebook, which runs every stage in an i
 
 ## Current status
 
-**Release-grade.** At `507e06d` (notebook blob `447723996da8`) the notebook runs every stage in an isolated hash-locked environment and installs nothing into the kernel. Its default `Run all` path passed in one pass on Google Colab (T4) and on a clean Kaggle T4 in strict single-pass mode, and its BYOD branch passed the REL12 journey (representative photographs with and without their own masks accepted and carried through adaptation, evaluation, export and a fresh-process reload; three incompatible inputs refused with the validator's message).
+**Candidate.** The notebook was regenerated after the 2026-10-02 notebook review (findings KIP-m1..m4: the original-photograph reference is no longer called a ceiling, the split's independence assumption and near-duplicate report, the stated BYOD minimum, the recorded run time, and small printed outputs), so its blob no longer matches the records above, and a hosted `Run all` of the current revision is required before it can be promoted again. The previous revision was release-grade: at `507e06d` (notebook blob `447723996da8`) the notebook runs every stage in an isolated hash-locked environment and installs nothing into the kernel. Its default `Run all` path passed in one pass on Google Colab (T4) and on a clean Kaggle T4 in strict single-pass mode, and its BYOD branch passed the REL12 journey (representative photographs with and without their own masks accepted and carried through adaptation, evaluation, export and a fresh-process reload; three incompatible inputs refused with the validator's message).
