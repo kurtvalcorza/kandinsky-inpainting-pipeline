@@ -1,0 +1,242 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/kandinsky-inpainting-pipeline-7008428-01ce27/kandinsky_inpainting_colab_7008428_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/11 - Infrastructure: check the runtime, GPU and disk; create a fresh run directory...
+{'gpu': 'Tesla T4, 15360 MiB', 'kernel_python': '3.13.15', 'run_directory': '/content/outputs/kandinsky_inpainting/c8190e696d67', 'weights': '/content/weights', 'environment': '/tmp/kandinsky_inpainting_env_c8190e696d67', 'free_gib': {'weights': 193.2, 'environment': 193.2}}
+[colab] Executing cell 2/11 - Infrastructure: write and verify the carried package, stage runner, lock and manifests...
+{'carried_files': 11, 'verified': True, 'repository': 'kurtvalcorza/kandinsky-inpainting-pipeline', 'revision': '6539f63ff676f51e14871857aa26e5c52bc858da', 'generator': 'build_notebook.py/3.0'}
+[colab] Executing cell 3/11 - Infrastructure: install the locked runtime into an isolated environment and define the stage runner...
+{'notebook_source': '6539f63ff676f51e14871857aa26e5c52bc858da', 'python': '3.12.12', 'torch': '2.14.0+cu130', 'diffusers': '0.40.0', 'transformers': '5.17.0', 'peft': '0.21.0', 'cuda': True, 'locked_packages': 68, 'environment': '/tmp/kandinsky_inpainting_env_c8190e696d67/venv', 'setup_seconds': 80}
+[colab] Executing cell 4/11 - Infrastructure: stage and digest-verify the three pinned snapshots...
+Running stage 'weights' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/weights.log
+{'model_id': 'kandinsky-community/kandinsky-2-2-decoder-inpaint', 'revision': 'db790ad5cbcabed886f069ef2710774657621702', 'license': 'apache-2.0', 'files': 7, 'total_bytes': 5283767688}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+{'weights_dir': '/content/weights/kandinsky-2-2-decoder-inpaint', 'fetched': ['README.md', 'model_index.json', 'movq/config.json', 'movq/diffusion_pytorch_model.safetensors', 'scheduler/scheduler_config.json', 'unet/config.json', 'unet/diffusion_pytorch_model.safetensors']}
+{'verified_files': 7, 'revision': 'db790ad5cbcabed886f069ef2710774657621702'}
+{'model_id': 'kandinsky-community/kandinsky-2-2-prior', 'revision': '9fc51ad5732afc5d031724219d22e6c42179c5a8', 'license': 'apache-2.0', 'files': 14, 'total_bytes': 10574964619}
+{'weights_dir': '/content/weights/kandinsky-2-2-prior', 'fetched': ['README.md', 'model_index.json', 'text_encoder/config.json', 'text_encoder/model.safetensors', 'image_processor/preprocessor_config.json', 'tokenizer/merges.txt', 'tokenizer/special_tokens_map.json', 'tokenizer/tokenizer_config.json', 'tokenizer/vocab.json', 'image_encoder/config.json', 'image_encoder/model.safetensors', 'scheduler/scheduler_config.json', 'prior/config.json', 'prior/diffusion_pytorch_model.safetensors']}
+{'verified_files': 14, 'revision': '9fc51ad5732afc5d031724219d22e6c42179c5a8'}
+{'model_id': 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K', 'revision': '1a25a446712ba5ee05982a381eed697ef9b435cf', 'license': 'mit', 'files': 9, 'total_bytes': 608782299}
+{'weights_dir': '/content/weights/clip-vit-b-32-laion2b', 'fetched': ['README.md', 'config.json', 'merges.txt', 'model.safetensors', 'preprocessor_config.json', 'special_tokens_map.json', 'tokenizer.json', 'tokenizer_config.json', 'vocab.json']}
+{'verified_files': 9, 'revision': '1a25a446712ba5ee05982a381eed697ef9b435cf'}
+{'stage': 'weights', 'status': 'ok', 'seconds': 517.6}
+[colab] Executing cell 5/11 - kandinsky_inpainting-17...
+Running stage 'prepare' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/prepare.log
+{'data_source': "iNaturalist CC0 bird photographs (six species, 10 each); iNaturalist open-data bucket, research-grade CC0 photos selected 2026-09-19 (fleet DINOv2/ViT corpus subset); CC0 1.0 (each photo's own license_code on iNaturalist; observers credited in the records)", 'splits': {'train': 36, 'validation': 12, 'test': 12}, 'captions': 6, 'disjoint': {'train': 36, 'validation': 12, 'test': 12}}
+{'near_duplicates_across_splits': 0, 'pairs': [], 'note': '16x16 greyscale thumbnails correlating >= 0.95 in different splits; only pixel-identical copies are removed, so remove near-duplicates (bursts, crops, edits) or the held-out numbers are optimistic'}
+{'shorter_side': {'min': 298, 'max': 500}, 'centre_cropped': 31, 'digest': '97bb3c9e3a4eeea4...'}
+{'first_test_record': {'id': 'test-000', 'size': (500, 383), 'resized_to': (668, 512), 'centre_crop': (512, 512), 'caption_chars': 80}, 'caption': 'a photo of a Song Sparrow (Melospiza melodia), a wild bird photographed outdoors', 'repaint_fraction': 0.3297}
+{'prompts': ['a photo of a Chipping Sparrow (Spizella passerina), a wild bird photographed outdoors', 'a photo of a Song Sparrow (Melospiza melodia), a wild bird photographed outdoors', 'a photo of a American Goldfinch (Spinus tristis), a wild bird photographed outdoors', 'a photo of a Dark-eyed Junco (Junco hyemalis), a wild bird photographed outdoors', 'a photo of a White-throated Sparrow (Zonotrichia albicollis), a wild bird photographed outdoors', 'a photo of a House Finch (Haemorhous mexicanus), a wild bird photographed outdoors']}
+{'sample_csv': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_sample_captions.csv'}
+{'validation': 'record shape, image decodability and side limits, optional mask shape, caption length and duplicate ids only. Nothing checks semantic alignment: any RGB image with any string is accepted'}
+{'probe': 'missing caption', 'rejected': "records[0] is missing 'caption'"}
+{'probe': 'image too small', 'rejected': 'records[0]: image sides must be within 256..4096 px, got (200, 200)'}
+{'probe': 'mask size differs from image', 'rejected': 'records[0]: mask_image size (300, 300) must match image size (500, 375)'}
+{'probe': 'duplicate id', 'rejected': "duplicate id 'train-000'"}
+{'stage': 'prepare', 'status': 'ok', 'seconds': 24.2}
+[colab] Executing cell 6/11 - kandinsky_inpainting-20...
+Running stage 'encode' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/encode.log
+W1004 20:39:17.778000 3841 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:39:17.830000 3841 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+Loading pipeline components...:   0%|          | 0/6 [00:00<?, ?it/s]
+Loading weights:   0%|          | 0/776 [00:00<?, ?it/s][A
+Loading weights:  12%|█▏        | 91/776 [00:00<00:00, 894.61it/s][A
+Loading weights:  23%|██▎       | 181/776 [00:00<00:00, 831.69it/s][A
+Loading weights:  34%|███▍      | 265/776 [00:00<00:00, 810.60it/s][A
+Loading weights:  45%|████▍     | 347/776 [00:00<00:00, 814.02it/s][A
+Loading weights:  55%|█████▌    | 429/776 [00:00<00:00, 806.17it/s][A
+Loading weights:  66%|██████▌   | 510/776 [00:00<00:00, 794.23it/s][A
+Loading weights:  76%|███████▌  | 590/776 [00:00<00:00, 781.46it/s][A
+Loading weights:  87%|████████▋ | 673/776 [00:00<00:00, 794.40it/s][A
+Loading weights:  97%|█████████▋| 754/776 [00:00<00:00, 798.91it/s][A
+Loading weights: 100%|██████████| 776/776 [00:00<00:00, 809.02it/s]
+Loading pipeline components...:  17%|█▋        | 1/6 [00:01<00:06,  1.26s/it]
+Loading pipeline components...:  33%|███▎      | 2/6 [00:17<00:40, 10.21s/it]
+Loading weights:   0%|          | 0/517 [00:00<?, ?it/s][A
+Loading weights:   0%|          | 2/517 [00:01<04:54,  1.75it/s][A
+Loading weights:   8%|▊         | 40/517 [00:01<00:12, 38.88it/s][A
+Loading weights:  10%|▉         | 51/517 [00:01<00:09, 46.80it/s][A
+Loading weights:  12%|█▏        | 62/517 [00:01<00:10, 45.37it/s][A
+Loading weights:  14%|█▍        | 72/517 [00:01<00:10, 43.28it/s][A
+Loading weights:  15%|█▌        | 80/517 [00:02<00:09, 48.35it/s][A
+Loading weights:  17%|█▋        | 88/517 [00:02<00:09, 45.33it/s][A
+Loading weights:  19%|█▊        | 96/517 [00:02<00:08, 50.84it/s][A
+Loading weights:  20%|██        | 104/517 [00:02<00:08, 46.71it/s][A
+Loading weights:  22%|██▏       | 112/517 [00:02<00:07, 51.68it/s][A
+Loading weights:  23%|██▎       | 120/517 [00:02<00:08, 46.60it/s][A
+Loading weights:  25%|██▍       | 128/517 [00:03<00:07, 51.80it/s][A
+Loading weights:  26%|██▋       | 136/517 [00:03<00:08, 46.13it/s][A
+Loading weights:  28%|██▊       | 144/517 [00:03<00:07, 51.14it/s][A
+Loading weights:  29%|██▉       | 152/517 [00:03<00:07, 45.91it/s][A
+Loading weights:  31%|███       | 160/517 [00:03<00:06, 51.79it/s][A
+Loading weights:  32%|███▏      | 168/517 [00:03<00:07, 47.06it/s][A
+Loading weights:  34%|███▍      | 176/517 [00:04<00:06, 52.52it/s][A
+Loading weights:  36%|███▌      | 184/517 [00:04<00:07, 46.58it/s][A
+Loading weights:  38%|███▊      | 194/517 [00:04<00:05, 54.85it/s][A
+Loading weights:  39%|███▉      | 201/517 [00:04<00:06, 48.71it/s][A
+Loading weights:  40%|████      | 208/517 [00:04<00:05, 51.80it/s][A
+Loading weights:  42%|████▏     | 216/517 [00:04<00:06, 46.81it/s][A
+Loading weights:  43%|████▎     | 224/517 [00:04<00:05, 51.75it/s][A
+Loading weights:  45%|████▍     | 232/517 [00:05<00:06, 46.47it/s][A
+Loading weights:  47%|████▋     | 242/517 [00:05<00:04, 56.05it/s][A
+Loading weights:  48%|████▊     | 249/517 [00:05<00:05, 52.87it/s][A
+Loading weights:  51%|█████     | 264/517 [00:05<00:04, 52.82it/s][A
+Loading weights:  53%|█████▎    | 272/517 [00:05<00:04, 57.19it/s][A
+Loading weights:  54%|█████▍    | 280/517 [00:06<00:04, 50.54it/s][A
+Loading weights:  56%|█████▌    | 288/517 [00:06<00:04, 55.76it/s][A
+Loading weights:  57%|█████▋    | 296/517 [00:06<00:04, 49.43it/s][A
+Loading weights:  59%|█████▉    | 304/517 [00:06<00:03, 55.34it/s][A
+Loading weights:  60%|██████    | 312/517 [00:06<00:04, 48.92it/s][A
+Loading weights:  62%|██████▏   | 320/517 [00:06<00:03, 55.08it/s][A
+Loading weights:  63%|██████▎   | 328/517 [00:07<00:03, 49.05it/s][A
+Loading weights:  65%|██████▍   | 336/517 [00:07<00:03, 54.67it/s][A
+Loading weights:  67%|██████▋   | 344/517 [00:07<00:03, 48.60it/s][A
+Loading weights:  68%|██████▊   | 352/517 [00:07<00:03, 54.47it/s][A
+Loading weights:  70%|██████▉   | 360/517 [00:07<00:03, 48.25it/s][A
+Loading weights:  71%|███████   | 368/517 [00:07<00:02, 54.25it/s][A
+Loading weights:  73%|███████▎  | 376/517 [00:07<00:02, 48.39it/s][A
+Loading weights:  74%|███████▍  | 384/517 [00:08<00:02, 54.49it/s][A
+Loading weights:  76%|███████▌  | 392/517 [00:08<00:02, 48.36it/s][A
+Loading weights:  77%|███████▋  | 400/517 [00:08<00:02, 54.18it/s][A
+Loading weights:  79%|███████▉  | 408/517 [00:08<00:02, 48.19it/s][A
+Loading weights:  80%|████████  | 416/517 [00:08<00:01, 54.32it/s][A
+Loading weights:  82%|████████▏ | 424/517 [00:08<00:01, 48.24it/s][A
+Loading weights:  84%|████████▎ | 432/517 [00:08<00:01, 54.36it/s][A
+Loading weights:  85%|████████▌ | 440/517 [00:09<00:01, 48.39it/s][A
+Loading weights:  87%|████████▋ | 448/517 [00:09<00:01, 54.47it/s][A
+Loading weights:  88%|████████▊ | 456/517 [00:09<00:01, 48.56it/s][A
+Loading weights:  90%|████████▉ | 464/517 [00:09<00:00, 54.58it/s][A
+Loading weights:  91%|█████████▏| 472/517 [00:09<00:00, 48.59it/s][A
+Loading weights:  93%|█████████▎| 480/517 [00:09<00:00, 54.63it/s][A
+Loading weights:  94%|█████████▍| 488/517 [00:10<00:00, 48.55it/s][A
+Loading weights:  96%|█████████▌| 496/517 [00:10<00:00, 54.20it/s][A
+Loading weights:  97%|█████████▋| 504/517 [00:10<00:00, 48.22it/s][A
+Loading weights:  99%|█████████▉| 514/517 [00:10<00:00, 58.13it/s][A
+Loading weights: 100%|██████████| 517/517 [00:10<00:00, 48.90it/s]
+Loading pipeline components...:  50%|█████     | 3/6 [00:28<00:31, 10.65s/it]
+Loading pipeline components...: 100%|██████████| 6/6 [00:29<00:00,  3.64s/it]
+Loading pipeline components...: 100%|██████████| 6/6 [00:29<00:00,  4.84s/it]
+{'n_cached': 8, 'n_new': 8, 'gpu_memory_gb_with_prior': 9.87}
+{'prompt_seed': {'a photo of a Chipping Sparrow (Spizella passerin': 699914436, 'a photo of a Song Sparrow (Melospiza melodia), a': 2135777262}}
+{'prior_released': True, 'gpu_memory_gb_after_release': 2.7, 'device': 'cuda', 'precision': 'float16'}
+{'prompt_cache': '/content/outputs/kandinsky_inpainting/c8190e696d67/state/prompt_cache.safetensors', 'prompts': 8}
+{'stage': 'encode', 'status': 'ok', 'seconds': 152.7}
+[colab] Executing cell 7/11 - kandinsky_inpainting-22...
+Running stage 'frozen' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/frozen.log
+W1004 20:41:53.117000 4492 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:41:53.164000 4492 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+{'frozen_denoising_mse': {'validation': 0.027311, 'test': 0.028245}, 'by_timestep_test': {'100': 0.104635, '300': 0.027547, '500': 0.007314, '700': 0.001515, '900': 0.000216}, 'seconds': 13.4}
+{'inpainted': 12, 'steps': 20, 'guidance_scale': 4.0, 'seconds': 48.64, 'adapted': False}
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 398/398 [00:00<00:00, 5030.49it/s]
+{'clip_prompt_similarity': {'mean_fill_floor': 24.026, 'frozen': 31.078, 'original_photo_reference': 30.274}, 'reference_kind': 'original-photograph reference (per image, own caption only; not a ceiling)'}
+{'frozen_preservation': {'mean_unmasked_psnr_db': 25.3, 'mean_unmasked_ssim': 0.9379}}
+{'id': 'test-000', 'caption': 'a photo of a Song Sparrow (Melospiza mel', 'unmasked_psnr_db': 23.9, 'unmasked_ssim': 0.961, 'clip': 32.69}
+{'id': 'test-001', 'caption': 'a photo of a American Goldfinch (Spinus ', 'unmasked_psnr_db': 25.03, 'unmasked_ssim': 0.9387, 'clip': 35.64}
+{'id': 'test-002', 'caption': 'a photo of a American Goldfinch (Spinus ', 'unmasked_psnr_db': 27.0, 'unmasked_ssim': 0.9676, 'clip': 35.01}
+{'id': 'test-003', 'caption': 'a photo of a House Finch (Haemorhous mex', 'unmasked_psnr_db': 32.3, 'unmasked_ssim': 0.9935, 'clip': 26.39}
+{'id': 'test-004', 'caption': 'a photo of a Song Sparrow (Melospiza mel', 'unmasked_psnr_db': 27.47, 'unmasked_ssim': 0.913, 'clip': 32.74}
+{'id': 'test-005', 'caption': 'a photo of a House Finch (Haemorhous mex', 'unmasked_psnr_db': 25.76, 'unmasked_ssim': 0.988, 'clip': 28.29}
+{'grid': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_frozen_grid.jpg'}
+{'stage': 'frozen', 'status': 'ok', 'seconds': 162.5}
+Frozen model: photograph, masked view and output, one row per test photograph -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_frozen_grid.jpg
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmpwpt6v6_j.jpeg]
+[colab] Executing cell 8/11 - kandinsky_inpainting-25...
+Running stage 'adapt' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/adapt.log
+W1004 20:44:39.983000 5184 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:44:40.033000 5184 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+{'epoch': 0, 'train_loss': None, 'val_denoising_mse': 0.027311, 'note': 'frozen model (LoRA at initialization: B = 0)'}
+{'epoch': 1, 'train_loss': 0.0342, 'val_denoising_mse': 0.02726}
+{'epoch': 2, 'train_loss': 0.0533, 'val_denoising_mse': 0.027216}
+{'epoch': 3, 'train_loss': 0.0155, 'val_denoising_mse': 0.027178}
+{'epoch': 4, 'train_loss': 0.0249, 'val_denoising_mse': 0.02714}
+{'trainable_parameters': 1646592, 'total_parameters': 1254721160, 'steps': 144, 'best_epoch': 4, 'optimizer': 'AdamW (weight_decay 0, grad-norm clip 1.0)', 'precision': 'float16 autocast + GradScaler', 'seconds': 75.5, 'gpu_memory_gb': 2.71}
+{'artifact': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_adapter', 'format': 'org.valcorza.kandinsky-inpainting.adapter.v1', 'tensors': 176, 'bytes': 6607664, 'sha256': '2571b0ccf33c0461...'}
+{'stage': 'adapt', 'status': 'ok', 'seconds': 167.4}
+[colab] Executing cell 9/11 - kandinsky_inpainting-28...
+Running stage 'evaluate' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/evaluate.log
+W1004 20:47:32.396000 5893 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:47:32.462000 5893 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 398/398 [00:00<00:00, 4817.34it/s]
+{'denoising_mse_validation': {'frozen': 0.027311, 'adapted': 0.02714}}
+{'denoising_mse_test': {'frozen': 0.028245, 'adapted': 0.028009}}
+{'denoising_mse_test_by_timestep': {'100': {'frozen': 0.104635, 'adapted': 0.103994}, '300': {'frozen': 0.027547, 'adapted': 0.027226}, '500': {'frozen': 0.007314, 'adapted': 0.007134}, '700': {'frozen': 0.001515, 'adapted': 0.001482}, '900': {'frozen': 0.000216, 'adapted': 0.00021}}}
+{'mean_unmasked_psnr_db': {'frozen': 25.3, 'adapted': 25.58}}
+{'mean_unmasked_ssim': {'frozen': 0.9379, 'adapted': 0.9418}}
+{'clip_prompt_similarity': {'mean_fill_floor': 24.026, 'frozen': 31.078, 'adapted': 30.572, 'original_photo_reference': 30.274}}
+{'clip_above_own_original_photograph': {'mean_fill_floor': '0 of 12', 'frozen': '7 of 12', 'adapted': '6 of 12'}, 'note': 'per image; the original photograph is a reference, not a ceiling'}
+{'id': 'test-000', 'caption': 'a photo of a Song Sparrow (Melospiza mel', 'clip': {'frozen': 32.69, 'adapted': 32.65}, 'unmasked_psnr_db': {'frozen': 23.9, 'adapted': 23.86}}
+{'id': 'test-001', 'caption': 'a photo of a American Goldfinch (Spinus ', 'clip': {'frozen': 35.64, 'adapted': 35.79}, 'unmasked_psnr_db': {'frozen': 25.03, 'adapted': 25.57}}
+{'id': 'test-002', 'caption': 'a photo of a American Goldfinch (Spinus ', 'clip': {'frozen': 35.01, 'adapted': 34.92}, 'unmasked_psnr_db': {'frozen': 27.0, 'adapted': 27.25}}
+{'id': 'test-003', 'caption': 'a photo of a House Finch (Haemorhous mex', 'clip': {'frozen': 26.39, 'adapted': 25.91}, 'unmasked_psnr_db': {'frozen': 32.3, 'adapted': 32.11}}
+{'id': 'test-004', 'caption': 'a photo of a Song Sparrow (Melospiza mel', 'clip': {'frozen': 32.74, 'adapted': 31.76}, 'unmasked_psnr_db': {'frozen': 27.47, 'adapted': 28.41}}
+{'id': 'test-005', 'caption': 'a photo of a House Finch (Haemorhous mex', 'clip': {'frozen': 28.29, 'adapted': 29.32}, 'unmasked_psnr_db': {'frozen': 25.76, 'adapted': 25.92}}
+{'grid': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_adapted_grid.jpg'}
+{'test_denoising_mse_change': -0.000236, 'note': 'held-out observation, not asserted'}
+{'report': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_evaluation_report.json'}
+{'stage': 'evaluate', 'status': 'ok', 'seconds': 156.6}
+Frozen model (Section 6) -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_frozen_grid.jpg
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmp42avuj32.jpeg]
+Adapted model: same photographs, masks and seeds -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_adapted_grid.jpg
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmpjho5kd3g.jpeg]
+[colab] Executing cell 10/11 - kandinsky_inpainting-31...
+Running stage 'reload' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/reload.log
+{'artifact': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_adapter', 'format': 'org.valcorza.kandinsky-inpainting.adapter.v1', 'tensors': 176, 'bytes': 6607664, 'sha256': '2571b0ccf33c0461...'}
+W1004 20:50:13.226000 6558 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:50:13.278000 6558 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+{'reload_parity': {'denoising_mse_diff': 0.0, 'mean_abs_pixel_diff': 0.1047, 'compared_with': "the trained in-memory model of the 'adapt' process"}, 'reloaded_best_epoch': 4}
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 398/398 [00:00<00:00, 21296.86it/s]
+{'id': 'test-000', 'prompt': 'a photo of a House Finch (Haemorhous mexicanus) perched on a snow-covered branch in winter', 'image': 'outputs/kandinsky_inpainting_new_prompt_0.png', 'unmasked_psnr_db': 25.12, 'unmasked_ssim': 0.9695, 'clip_prompt_similarity': 28.127, 'note': 'sanity check, not an evaluation'}
+{'id': 'test-001', 'prompt': 'a photo of a House Finch (Haemorhous mexicanus) perched on a snow-covered branch in winter', 'image': 'outputs/kandinsky_inpainting_new_prompt_1.png', 'unmasked_psnr_db': 22.68, 'unmasked_ssim': 0.8833, 'clip_prompt_similarity': 17.911, 'note': 'sanity check, not an evaluation'}
+outputs/:
+  - outputs/adapt.json (1.5 KB)
+  - outputs/encode.json (0.7 KB)
+  - outputs/frozen.json (7.3 KB)
+  - outputs/kandinsky_inpainting_adapted_grid.jpg (140.0 KB)
+  - outputs/kandinsky_inpainting_adapter/adapter.safetensors (6452.8 KB)
+  - outputs/kandinsky_inpainting_adapter/manifest.json (12.1 KB)
+  - outputs/kandinsky_inpainting_evaluation_report.json (11.5 KB)
+  - outputs/kandinsky_inpainting_frozen_grid.jpg (141.3 KB)
+  - outputs/kandinsky_inpainting_new_prompt_0.png (369.8 KB)
+  - outputs/kandinsky_inpainting_new_prompt_1.png (371.7 KB)
+  - outputs/kandinsky_inpainting_result.json (6.0 KB)
+  - outputs/kandinsky_inpainting_sample_captions.csv (2.3 KB)
+  - outputs/prepare.json (2.4 KB)
+  - outputs/reload.json (0.8 KB)
+  - outputs/weights.json (1.8 KB)
+{'stage': 'reload', 'status': 'ok', 'seconds': 101.3}
+New caption, first held-out photograph (reloaded adapter) -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_new_prompt_0.png
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmptk7xk_9q.png]
+New caption, second held-out photograph (reloaded adapter) -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_new_prompt_1.png
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmpgndy39zt.png]
+[colab] Executing cell 11/11 - kandinsky_inpainting-34...
+Running stage 'activity' in the isolated environment; log: /content/outputs/kandinsky_inpainting/c8190e696d67/logs/activity.log
+W1004 20:52:00.867000 7001 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+W1004 20:52:00.922000 7001 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+Unable to import `torchao` Tensor objects. This may affect loading checkpoints serialized with `torchao`
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 398/398 [00:00<00:00, 4674.07it/s]
+{'id': 'test-000', 'repaint_fraction': {'centre': 0.25, 'large': 0.5625}, 'unmasked_psnr_db': {'centre': 23.86, 'large': 17.7}, 'clip': {'centre': 32.65, 'large': 34.42}}
+{'id': 'test-001', 'repaint_fraction': {'centre': 0.25, 'large': 0.5625}, 'unmasked_psnr_db': {'centre': 25.57, 'large': 23.01}, 'clip': {'centre': 35.79, 'large': 34.34}}
+{'grid': '/content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_activity_large_grid.jpg'}
+{'stage': 'activity', 'status': 'ok', 'seconds': 90.1}
+Adapted model with the large mask -> /content/outputs/kandinsky_inpainting/c8190e696d67/outputs/kandinsky_inpainting_activity_large_grid.jpg
+<IPython.core.display.Image object>
+
+[Image saved to: /tmp/tmp4fjj_yjd.jpeg]
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/kandinsky-inpainting-pipeline-7008428-01ce27/kandinsky_inpainting_colab_7008428_colab-cli-t4_output.ipynb'...
