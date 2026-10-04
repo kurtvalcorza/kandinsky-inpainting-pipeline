@@ -138,7 +138,7 @@ The code reports these measures. Names are given as the code reports them.
 2. **`unmasked_psnr_db`** and **`unmasked_ssim`** from `generate`, averaged as `mean_unmasked_psnr_db` and `mean_unmasked_ssim` by `score_inpainting_preservation`. PSNR is in decibels, capped at `100.0` for an exact match. SSIM here is one global statistic over the kept pixels, not the windowed SSIM of Wang et al. (2004). Both measure how faithfully the kept region survives, which in this system is the MoVQ encode-decode round trip.
 3. **`mean_prompt_similarity`** and **`prompt_similarities`** from `score_generations`. Each value is the pinned CLIP ViT-B/32 model's `logits_per_image` score between a whole output image and its caption: a cosine similarity multiplied by CLIP's learned temperature. It captures agreement between the image and the caption.
 
-The tutorial frames the CLIP measure with two references computed the same way. The floor is a mean-colour fill of the repaint region, and the ceiling is the original, unmasked photograph.
+The tutorial reads the CLIP measure beside two references computed the same way. The floor is a mean-colour fill of the repaint region. The **original-photograph reference** (`metrics.real_photo_reference`, alias `real_photo_baseline`) is each original, unmasked photograph scored against its own caption only, so no photograph is compared with itself. It is a reference line, not a ceiling: a model that repaints the masked region to match the caption can score above the original photograph, which only has to contain the subject. In the recorded Kaggle T4 run the frozen model's outputs scored above their own original on 7 of 12 test photographs, and the evaluation report counts this per image (`clip_above_own_original_photograph`).
 
 The measures are complementary. The denoising loss is sensitive to the adaptation but says nothing about how an edit looks. Preservation shows whether the kept region is disturbed but ignores the repainted region. CLIP describes the whole image but depends on one automated scorer and on the caption wording. Reading only the loss would miss a model that fits noise better but repaints worse. Reading only CLIP would reward an image that matches the caption while damaging the kept region.
 
@@ -162,7 +162,7 @@ Every number the tutorial reports comes from a single run on one seeded split of
 
 Seeds control most of the randomness:
 
-- the data split (`SAMPLE_SEED = 42`, and `seed` in `split_dataset` for user data);
+- the data split (`SAMPLE_SEED = 42`, and `seed` in `split_dataset` for user data). Both splits are stratified within each caption, so the test measures new photographs of seen captions. A random split assumes independent photographs; `split_dataset` removes only pixel-identical copies, and `near_duplicate_pairs` reports near-copies that cross splits;
 - the evaluation noise, derived from the evaluation `seed`, the timestep and the batch position;
 - the training noise, timesteps and ordering (`seed`);
 - each inpainted image (`seed + index`);

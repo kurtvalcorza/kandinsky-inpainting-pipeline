@@ -304,6 +304,7 @@ def stage_prepare(run: Run) -> None:
         INPUT_SCHEMA,
         dataset_manifest,
         load_byod_dataset,
+        near_duplicate_pairs,
         preprocess_image_and_mask,
         sample_prompts,
         split_dataset,
@@ -330,6 +331,9 @@ def stage_prepare(run: Run) -> None:
 
     dataset_report = dataset_manifest({"train": train_records, "validation": val_records, "test": test_records})
     print({"data_source": data_source, "splits": {k: v["n_records"] for k, v in dataset_report["splits"].items()}, "captions": dataset_report["splits"]["train"]["n_captions"], "disjoint": dataset_report["disjoint"]})
+    # KIP-m2: the random split assumes independent photographs; near-copies across splits are reported, not removed.
+    near_duplicates = near_duplicate_pairs({"train": train_records, "validation": val_records, "test": test_records})
+    print({"near_duplicates_across_splits": len(near_duplicates), "pairs": near_duplicates[:5], "note": "16x16 greyscale thumbnails correlating >= 0.95 in different splits; only pixel-identical copies are removed, so remove near-duplicates (bursts, crops, edits) or the held-out numbers are optimistic"})
     print({"shorter_side": dataset_report["splits"]["train"]["shorter_side"], "centre_cropped": dataset_report["splits"]["train"]["centre_cropped"], "digest": dataset_report["digest"][:16] + "..."})
     _, first_mask = preprocess_image_and_mask(test_records[0]["image"], test_records[0]["mask_image"])
     repaint_fraction = round(float((np.asarray(first_mask) > 0).mean()), 4)
@@ -365,7 +369,7 @@ def stage_prepare(run: Run) -> None:
             "ids": {name: [r["id"] for r in records] for name, records in splits.items()},
         },
     )
-    run.write_output("prepare.json", {"data_source": data_source, "dataset": dataset_report, "prompts": prompts, "repaint_fraction": repaint_fraction, "probes": probe_results})
+    run.write_output("prepare.json", {"data_source": data_source, "dataset": dataset_report, "prompts": prompts, "repaint_fraction": repaint_fraction, "probes": probe_results, "near_duplicates_across_splits": near_duplicates})
 
 
 def stage_encode(run: Run) -> None:
@@ -387,9 +391,9 @@ def stage_encode(run: Run) -> None:
 
 
 def stage_frozen(run: Run) -> None:
-    """Section 6: the frozen model's held-out denoising loss, preservation and CLIP similarity between the mean-fill
-    floor and the original-photograph ceiling."""
-    from kandinsky_inpainting_pipeline import score_generations, score_inpainting_preservation
+    """Section 6: the frozen model's held-out denoising loss, preservation and CLIP similarity beside two references,
+    the mean-fill floor and the original-photograph reference (a reference line, not a ceiling)."""
+    from kandinsky_inpainting_pipeline import real_photo_reference, score_generations, score_inpainting_preservation
 
     opts = run.options
     splits, data = load_data(run, "frozen")
@@ -410,8 +414,8 @@ def stage_frozen(run: Run) -> None:
     frozen_preservation = score_inpainting_preservation(test_images, frozen_images, test_masks)
     frozen_clip = score_generations(scorer, frozen_images, test_prompts)
     fill_clip = score_generations(scorer, [mean_fill(i, m) for i, m in zip(test_images, test_masks, strict=True)], test_prompts)
-    real_clip = score_generations(scorer, test_images, test_prompts)
-    print({"clip_prompt_similarity": {"mean_fill_floor": clip_mean(fill_clip), "frozen": clip_mean(frozen_clip), "original_photo_ceiling": clip_mean(real_clip)}})
+    real_clip = real_photo_reference(scorer, test_images, test_prompts)
+    print({"clip_prompt_similarity": {"mean_fill_floor": clip_mean(fill_clip), "frozen": clip_mean(frozen_clip), "original_photo_reference": clip_mean(real_clip)}, "reference_kind": real_clip["reference_kind"]})
     print({"frozen_preservation": {"mean_unmasked_psnr_db": round(frozen_preservation["mean_unmasked_psnr_db"], 2), "mean_unmasked_ssim": round(frozen_preservation["mean_unmasked_ssim"], 4)}})
     for result, clip in list(zip(frozen_generation["results"], frozen_clip["prompt_similarities"], strict=True))[:6]:
         print({"id": result["id"], "caption": result["prompt"][:40], "unmasked_psnr_db": result["unmasked_psnr_db"], "unmasked_ssim": result["unmasked_ssim"], "clip": round(clip, 2)})
@@ -426,7 +430,7 @@ def stage_frozen(run: Run) -> None:
         "preservation": frozen_preservation,
         "clip": frozen_clip,
         "mean_fill_floor_clip": fill_clip,
-        "original_photo_ceiling_clip": real_clip,
+        "original_photo_reference_clip": real_clip,
     }
     run.write_state("frozen.json", record)
     run.write_output("frozen.json", record)
@@ -485,6 +489,7 @@ def stage_evaluate(run: Run) -> None:
         PRIOR_REVISION,
         SCORER_ID,
         SCORER_REVISION,
+        count_above_reference,
         score_generations,
         score_inpainting_preservation,
     )
@@ -507,17 +512,25 @@ def stage_evaluate(run: Run) -> None:
     adapted_clip = score_generations(scorer, adapted_images, test_prompts)
     frozen_val, frozen_test = frozen["validation"], frozen["test"]
     frozen_preservation, frozen_clip = frozen["preservation"], frozen["clip"]
-    fill_clip, real_clip = frozen["mean_fill_floor_clip"], frozen["original_photo_ceiling_clip"]
+    fill_clip, real_clip = frozen["mean_fill_floor_clip"], frozen["original_photo_reference_clip"]
     comparison = {
         "denoising_mse_validation": {"frozen": frozen_val["denoising_mse"], "adapted": adapted_val["denoising_mse"]},
         "denoising_mse_test": {"frozen": frozen_test["denoising_mse"], "adapted": adapted_test["denoising_mse"]},
         "denoising_mse_test_by_timestep": {t: {"frozen": frozen_test["by_timestep"][t], "adapted": adapted_test["by_timestep"][t]} for t in adapted_test["by_timestep"]},
         "mean_unmasked_psnr_db": {"frozen": round(frozen_preservation["mean_unmasked_psnr_db"], 2), "adapted": round(adapted_preservation["mean_unmasked_psnr_db"], 2)},
         "mean_unmasked_ssim": {"frozen": round(frozen_preservation["mean_unmasked_ssim"], 4), "adapted": round(adapted_preservation["mean_unmasked_ssim"], 4)},
-        "clip_prompt_similarity": {"mean_fill_floor": clip_mean(fill_clip), "frozen": clip_mean(frozen_clip), "adapted": clip_mean(adapted_clip), "original_photo_ceiling": clip_mean(real_clip)},
+        "clip_prompt_similarity": {"mean_fill_floor": clip_mean(fill_clip), "frozen": clip_mean(frozen_clip), "adapted": clip_mean(adapted_clip), "original_photo_reference": clip_mean(real_clip)},
     }
     for name, row in comparison.items():
         print({name: row})
+    # KIP-m1: the original photograph is a reference, not a ceiling -- count the outputs that score above their own.
+    real_scores = real_clip["prompt_similarities"]
+    above_original = {
+        "mean_fill_floor": count_above_reference(fill_clip["prompt_similarities"], real_scores)["text"],
+        "frozen": count_above_reference(frozen_clip["prompt_similarities"], real_scores)["text"],
+        "adapted": count_above_reference(adapted_clip["prompt_similarities"], real_scores)["text"],
+    }
+    print({"clip_above_own_original_photograph": above_original, "note": "per image; the original photograph is a reference, not a ceiling"})
     frozen_results = frozen["generation_result"]["results"]
     for before, after, clip_before, clip_after in list(zip(frozen_results, adapted_generation["results"], frozen_clip["prompt_similarities"], adapted_clip["prompt_similarities"], strict=True))[:6]:
         print({"id": before["id"], "caption": before["prompt"][:40], "clip": {"frozen": round(clip_before, 2), "adapted": round(clip_after, 2)}, "unmasked_psnr_db": {"frozen": before["unmasked_psnr_db"], "adapted": after["unmasked_psnr_db"]}})
@@ -532,7 +545,8 @@ def stage_evaluate(run: Run) -> None:
         "generation": dict(settings),
         "frozen": {"validation": frozen_val, "test": frozen_test, "preservation": frozen_preservation, "clip": frozen_clip},
         "adapted": {"validation": adapted_val, "test": adapted_test, "preservation": adapted_preservation, "clip": adapted_clip, "loaded_from": "exported artifact, fresh process"},
-        "references": {"mean_fill_floor_clip": fill_clip, "original_photo_ceiling_clip": real_clip},
+        "references": {"mean_fill_floor_clip": fill_clip, "original_photo_reference_clip": real_clip},
+        "clip_above_own_original_photograph": above_original,
         "comparison": comparison,
         "adaptation": adapted_state["adaptation"],
         "history": adapted_state["history"],
@@ -589,7 +603,8 @@ def stage_reload(run: Run) -> None:
         raise AssertionError(f"reload parity failed: {parity}")
 
     scorer = load_scorer(run, reloaded.device)
-    new_records = [{**r, "caption": NEW_PROMPT} for r in test_records[:2]]
+    # Two held-out photographs (the same one twice when a BYOD test set holds a single photograph), so both PNGs exist.
+    new_records = [{**test_records[i % len(test_records)], "caption": NEW_PROMPT} for i in range(2)]
     new_generation = reloaded.generate(new_records, seed=NEW_PROMPT_SEED, steps=settings["steps"], guidance_scale=settings["guidance_scale"])
     new_clip = score_generations(scorer, [g["image"] for g in new_generation["results"]], [NEW_PROMPT] * len(new_records))
     new_predictions = []
