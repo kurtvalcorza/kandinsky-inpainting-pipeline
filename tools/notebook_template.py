@@ -148,7 +148,7 @@ TEMPLATE = {
         "near-duplicate pair that crosses splits. Set `BYOD_PATH` to a zip or directory already in the runtime to skip the "
         "upload dialog. Every caption appears in training, validation and test, and your records flow through the same contract — "
         "validation, prompt encoding, frozen baseline, adaptation, held-out evaluation, inference, artifact export and reload "
-        "parity. An invalid zip stops Section 4 with a `RuntimeError` that repeats the validator's message. Uploaded files "
+        "parity. An invalid zip stops Section 4 with one `Refused: <file>: <reason>` line, with no traceback, that repeats the validator's message. Uploaded files "
         "stay inside this runtime. BYOD is optional and never part of the default path."
     ),
     "weights_key": "kandinsky-2-2-decoder-inpaint",
@@ -329,10 +329,21 @@ TEMPLATE = {
                 'if USE_BYOD:\n'
                 '    if BYOD_PATH:\n'
                 '        byod_path = Path(BYOD_PATH)\n'
+                '        if not byod_path.exists():\n'
+                "            raise Refused(f'{{BYOD_PATH}}: BYOD_PATH is not a zip or folder in this runtime; fix the path, or leave it empty to upload in Colab, then run this cell again.')\n"
                 '    else:\n'
-                '        from google.colab import files\n'
+                '        try:\n'
+                '            from google.colab import files\n'
+                '        except ImportError:\n'
+                "            raise Refused('BYOD_PATH: is empty, and the upload dialog needs Google Colab. Elsewhere, put the zip in this runtime, set BYOD_PATH to its path and run this cell again.') from None\n"
                 '        uploaded = files.upload()\n'
+                '        if not uploaded:\n'
+                "            raise Refused('(no file): the upload was cancelled or empty. Run this cell again and choose one .zip file, or set BYOD_PATH.')\n"
+                '        if len(uploaded) != 1:\n'
+                "            raise Refused(f'{{\", \".join(sorted(uploaded))}}: upload exactly one .zip file, got {{len(uploaded)}}. Run this cell again and choose one file.')\n"
                 '        file_name, payload = next(iter(uploaded.items()))\n'
+                "        if not file_name.lower().endswith('.zip'):\n"
+                "            raise Refused(f'{{file_name}}: the upload must be one .zip holding captions.csv and the images. Run this cell again and choose a .zip file.')\n"
                 "        byod_path = ROOT / 'byod' / Path(file_name).name\n"
                 '        byod_path.parent.mkdir(parents=True, exist_ok=True)\n'
                 '        byod_path.write_bytes(payload)\n'
@@ -348,7 +359,7 @@ TEMPLATE = {
                 "BYOD expects (its `mask` column is empty because the sample uses the centre mask), and every probe rejected before "
                 "any model runs, each message naming the failed rule. `near_duplicates_across_splits` should be 0 on the sample. "
                 "With `USE_BYOD = True` the stage first reports how many of "
-                "your records brought their own mask, and an invalid zip stops this cell with a `RuntimeError` that repeats the "
+                "your records brought their own mask, and an invalid zip stops this cell with one `Refused: <file>: <reason>` line, with no traceback, that repeats the "
                 "validator's message.\n\n"
                 + CHECK.format(
                     body=(
@@ -679,7 +690,7 @@ TEMPLATE = {
         "memory was released when it stopped. |\n"
         "| A training loss is `nan` | the learning rate is too high | Keep `LEARNING_RATE` at or below `1e-4` and re-run from "
         "Section 7; report the run if it persists. |\n"
-        "| `ModuleNotFoundError: No module named 'google.colab'` with `USE_BYOD = True` | the upload dialog needs Google Colab | "
+        "| `Refused: BYOD_PATH: is empty, and the upload dialog needs Google Colab` with `USE_BYOD = True` | the upload dialog needs Google Colab | "
         "Set `BYOD_PATH` to a zip already in the runtime, use Colab for the upload, or keep `USE_BYOD = False`. |\n"
         "| BYOD: `captions.csv is missing columns [...]` or `file ... is not in the dataset` | the zip layout differs from the "
         "contract | Fix the named row or file in your zip: `captions.csv` needs `id`, `file`, `caption` (and optionally `mask`), "

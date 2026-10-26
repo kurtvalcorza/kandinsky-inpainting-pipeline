@@ -1,0 +1,69 @@
+{
+  "repo": "kandinsky-inpainting-pipeline",
+  "sha": "fc9a7dbcc5aa986ce6d453dcf97635b5c51f6ea3",
+  "notebook": "tutorials/kandinsky_inpainting_colab.ipynb",
+  "blob": "c2b78a80009a75a15a2bd7b4f32b5aad1de04879",
+  "gpu": "T4",
+  "session": "suite-kandinsky-fc9a7db-01ce",
+  "started_utc": "2026-10-26T16:57:28+00:00",
+  "runner": "Colab CLI `colab exec -f` on a fresh session (not a browser Run all)",
+  "overrides": [
+    {
+      "name": "USE_BYOD",
+      "from": "False",
+      "to": "True"
+    },
+    {
+      "name": "BYOD_PATH",
+      "from": "''",
+      "to": "'/etc'"
+    }
+  ],
+  "run_copy_blob": "334b85b25e78270d0483d8c2ad646de1483d440c",
+  "run_copy_sha256": "dbebf649f1ac89e4518f6245430ec28872b199ecc48de5bacf3188d76c557fe7",
+  "run_copy_note": "refusal run: the run copy is the committed notebook with the listed assignment overrides, cut immediately after the refusal cell and re-serialised (nbformat layout); input_unchanged compares against that copy",
+  "truncated_after_cell": "kandinsky_inpainting-17",
+  "refusal_cell_ref": "kandinsky_inpainting-17",
+  "refusal_cell_index": 5,
+  "cells_dropped": 19,
+  "code_cells_dropped": 6,
+  "original_sha256": "56a9d5bbfabfeafeb10eff1306a78cbc9ef049931ec199677335a0c3925c9515",
+  "status": "[suite-kandinsky-fc9a7db-01ce] gpu-t4-s-kkb-ass1c0-2trmxmz9xgmkn | Hardware: T4 | Shape: Standard | Variant: GPU | Status: IDLE",
+  "exec_exit_code": 0,
+  "stopped": true,
+  "stop_verified": true,
+  "wall_s": 765.1,
+  "input_unchanged": true,
+  "executed_file": "kandinsky_inpainting_colab_fc9a7db_colab-cli-t4_output.ipynb",
+  "log_cells": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "log_total": 5,
+  "code_cells": 5,
+  "executed_cells": 5,
+  "errors": [
+    {
+      "cell": "kandinsky_inpainting-17",
+      "ename": "Refused",
+      "evalue": "etc: BYOD dataset must contain captions.csv with the columns id, file, caption (and optionally mask) Fix the dataset (captions.csv with id, file, caption beside the images) and run the Section 4 cell again."
+    }
+  ],
+  "execution_counts": [],
+  "sequential": null,
+  "executed_sha256": "74bb643b5d26f4e48ecc62f8320e75023131286868da31d84855739cc14bb6ce",
+  "log_sequential_complete": true,
+  "mode": "expect_refusal",
+  "refusal_line": "Refused: etc: BYOD dataset must contain captions.csv with the columns id, file, caption (and optionally mask) Fix the dataset (captions.csv with id, file, caption beside the images) and run the Section 4 cell again.",
+  "halting_cell_index": 5,
+  "halting_cell_id": "kandinsky_inpainting-17",
+  "error_cells": [
+    5
+  ],
+  "refusal_fail_reasons": [],
+  "refusal_ok": true,
+  "verdict": "PASS"
+}
