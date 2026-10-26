@@ -9,7 +9,9 @@ Nothing is installed into the notebook kernel. Each stage is a separate process,
 the verified snapshots under ``--weights``, the dataset recorded by ``prepare``, the prompt-embedding cache written by
 ``encode``, the adapter artifact written by ``adapt`` and the JSON records of earlier stages. Learner-facing exports go
 to ``RUN_DIR/outputs``; hand-off state goes to ``RUN_DIR/state``. On failure a stage writes
-``RUN_DIR/state/<stage>.error.json`` with the exception type and message, which the notebook re-raises in the kernel.
+``RUN_DIR/state/<stage>.error.json`` with the exception type and message, which the notebook re-raises in the kernel. A BYOD dataset the ``prepare`` stage refuses is not a failure (NOTEBOOK_SPEC 3.0 DAT19/DAT20):
+the stage raises ``Refused``, prints no traceback, removes the earlier run's results, records ``"refused": true`` with
+the file name and the rule, and exits with ``REFUSED_EXIT``; the notebook then shows one ``Refused: <file>: <reason>`` line.
 
 Stages: weights → prepare → encode → frozen → adapt → evaluate → reload, plus the optional ``activity``.
 """
@@ -45,6 +47,47 @@ CENTRE_REPAINT_FRACTION = 0.25
 # --------------------------------------------------------------------------------------------------
 # run context and small helpers
 # --------------------------------------------------------------------------------------------------
+
+
+REFUSED_EXIT = 3  # a user input refused with a learner-facing message (DAT20); a crash exits 2
+KEPT_ON_REFUSAL = ("weights.json",)  # the verified snapshots describe the environment, not an input
+
+
+class Refused(ValueError):
+    """A user-supplied input that breaks the input contract (DAT19). Not a crash: no traceback is printed for it."""
+
+    def __init__(self, file: str, reason: str) -> None:
+        self.file = str(file) or "your input"
+        self.reason = str(reason).strip()
+        super().__init__(f"{self.file}: {self.reason}")
+
+
+def refused(exc: BaseException, file: str) -> Refused:
+    """``exc`` (a BYOD contract violation) as one ``Refused`` naming ``file``, with how to recover."""
+    message = str(exc).strip() or type(exc).__name__
+    if isinstance(exc, FileNotFoundError) and exc.filename:
+        message = f"{Path(exc.filename).name} was not found in it"
+    if not message.endswith((".", ")")):
+        message += "."
+    return Refused(file, f"{message} Fix the dataset (captions.csv with id, file, caption beside the images) and run the Section 4 cell again.")
+
+
+def invalidate_results(run: Run) -> list[str]:
+    """After a refusal, remove the earlier run's results and hand-off state (DAT20), so none of them can be read as this
+    input's result. Every stage after ``prepare`` depends on its dataset, so only the snapshot record stays."""
+    import shutil as _shutil
+
+    removed = []
+    for base in (run.out, run.state):
+        for path in sorted(base.iterdir()):
+            if path.name in KEPT_ON_REFUSAL or path.name.endswith(".error.json"):
+                continue
+            if path.is_dir():
+                _shutil.rmtree(path)
+            else:
+                path.unlink()
+            removed.append(path.name)
+    return removed
 
 
 class Run:
@@ -297,6 +340,9 @@ def stage_weights(run: Run) -> None:
 
 def stage_prepare(run: Run) -> None:
     """Section 4: fetch the sample (or read the BYOD zip), attach the masks, validate, split, and probe the refusals."""
+    import csv
+    import zipfile
+
     import numpy as np
     from PIL import Image
 
@@ -314,19 +360,24 @@ def stage_prepare(run: Run) -> None:
     )
     from kandinsky_inpainting_pipeline.samples import SAMPLE_LABEL_SOURCE
 
+    BYOD_ERRORS = (ValueError, TypeError, KeyError, IndexError, OSError, zipfile.BadZipFile, csv.Error, Image.DecompressionBombError)
     byod = run.options.byod
     if byod:
         byod_path = Path(byod).resolve()
-        byod_records = load_byod_dataset(byod_path)
-        own_masks = sum("mask_image" in r for r in byod_records)
+        try:  # every check here reads the learner's dataset: an error is the dataset, not a bug (DAT19)
+            byod_records = load_byod_dataset(byod_path)
+            own_masks = sum("mask_image" in r for r in byod_records)
+            splits = split_dataset(byod_records, seed=0)
+            splits = validated_splits(splits)
+        except BYOD_ERRORS as exc:
+            raise refused(exc, byod_path.name) from None
         print({"byod_records": len(byod_records), "own_masks": own_masks, "centre_mask_fallback": len(byod_records) - own_masks})
-        splits = split_dataset(byod_records, seed=0)
         data_source = "BYOD (" + byod_path.name + ")"
     else:
         byod_path = None
         splits = load_sample_splits(run)
+        splits = validated_splits(splits)
         data_source = SAMPLE_LABEL_SOURCE
-    splits = validated_splits(splits)
     train_records, val_records, test_records = splits["train"], splits["validation"], splits["test"]
 
     dataset_report = dataset_manifest({"train": train_records, "validation": val_records, "test": test_records})
@@ -713,6 +764,12 @@ def main(argv: list[str] | None = None) -> int:
     started = time.perf_counter()
     try:
         STAGES[options.stage](run)
+    except Refused as exc:  # the learner's input was refused, not a crash: no traceback, a dedicated exit code (DAT20)
+        removed = invalidate_results(run)
+        if removed:
+            print({"removed_earlier_results": removed}, flush=True)
+        error_file.write_text(json.dumps({"stage": options.stage, "type": "Refused", "refused": True, "file": exc.file, "message": str(exc)}), encoding="utf-8")
+        return REFUSED_EXIT
     except Exception as exc:  # the notebook re-raises this message in the kernel
         traceback.print_exc()
         message = str(exc) or repr(exc)
