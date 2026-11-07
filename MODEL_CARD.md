@@ -262,7 +262,7 @@ The following uses are unacceptable even where the pipeline would work:
 
 ## Verification records
 
-`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The current notebook, which runs every stage in an isolated hash-locked environment, was run three times at commit `507e06d`:
+`docs/release-verification.md` holds the procedure and every record, including a CPU pre-flight against stub models. The notebook revision at commit `507e06d` (history, REL14), which runs every stage in an isolated hash-locked environment, was run three times:
 
 - **Date:** 2026-09-30
 - **Subject:** `tutorials/kandinsky_inpainting_colab.ipynb` at commit `507e06d`, blob `447723996da8`
